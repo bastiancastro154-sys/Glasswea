@@ -22,6 +22,8 @@
   button { margin-top: 20px; padding: 7px 14px; border-radius: 8px; border: 1px solid #34333f; background: #1f1f29; color: inherit; font: inherit; cursor: pointer; }
   button:hover { background: #2a2a37; }
   .disabled { opacity: .4; pointer-events: none; }
+  .ok { color: #7be3a4; } .warn { color: #ffd166; }
+  h2.flash { color: #ecebf2; transition: color .3s; }
   #fav-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
   .fav { display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 8px; border-radius: 8px; background: #1f1f29; }
   .fav img, .fav .letter { width: 22px; height: 22px; flex: none; }
@@ -74,6 +76,12 @@
   <h2>Temporizador</h2>
   <div class="row"><label for="focusMin">Enfoque (minutos)</label><input type="number" id="focusMin" min="1" max="180"></div>
   <div class="row"><label for="breakMin">Descanso (minutos)</label><input type="number" id="breakMin" min="1" max="60"></div>
+
+  <h2 id="claude">Claude Code</h2>
+  <div class="row"><span id="link-status">Comprobando…</span><button id="link-toggle" style="margin:0" disabled>Vincular</button></div>
+  <p class="hint" id="link-hint">Al vincular, Glass Island añade unos avisos (hooks) a la configuración de Claude Code de este equipo
+    para saber cuándo está trabajando, cuándo termina y cuándo te necesita. No se usa tu cuenta ni tu contraseña, y nada sale de tu PC.
+    Afecta a las sesiones de Claude Code que abras después de vincular.</p>
 
   <h2>Sistema</h2>
   <div class="row"><label for="openAtLogin">Iniciar con Windows</label><input type="checkbox" id="openAtLogin"></div>

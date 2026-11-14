@@ -1,6 +1,6 @@
 {
   "name": "glass-island",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Isla dinámica de cristal para Windows: música, Claude Code y temporizador de enfoque",
   "main": "main.js",
   "scripts": {
@@ -19,6 +19,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "hooks.js",
       "renderer/**",
       "scripts/*.ps1",
       "assets/**"

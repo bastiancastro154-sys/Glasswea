@@ -29,7 +29,7 @@ npm install
 npm start
 ```
 
-Conectar Claude Code (añade hooks a `~/.claude/settings.json`, con copia de seguridad):
+Conectar Claude Code: en la app, clic en el recuadro "Claude Code" → "Vincular". Desde la terminal (añade hooks a `~/.claude/settings.json`, con copia de seguridad):
 
 ```bash
 npm run install-hooks

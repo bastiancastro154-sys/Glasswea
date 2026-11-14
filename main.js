@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
+const claudeHooks = require('./hooks');
 
-const HOOK_PORT = 47821;
+const HOOK_PORT = claudeHooks.PORT;
 const WIN_W = 480;
 const WIN_H = 400;
 const AUDIO_SCRIPT = path.join(__dirname, 'scripts', 'audio.ps1').replace('app.asar', 'app.asar.unpacked');
@@ -333,8 +334,13 @@ function startHookServer() {
 }
 
 // ---------- Configuración ----------
-function openSettings() {
-  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.focus(); return; }
+function openSettings(section) {
+  const hash = typeof section === 'string' && /^[a-z-]+$/.test(section) ? section : '';
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    settingsWin.focus();
+    if (hash) settingsWin.webContents.send('focus-section', hash);
+    return;
+  }
   settingsWin = new BrowserWindow({
     width: 440, height: Math.min(900, screen.getPrimaryDisplay().workAreaSize.height - 80),
     useContentSize: true, resizable: false, maximizable: false, fullscreenable: false,
@@ -343,9 +349,17 @@ function openSettings() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true },
   });
   settingsWin.setMenu(null);
-  settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
+  settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'), hash ? { hash } : undefined);
 }
-ipcMain.on('open-settings', openSettings);
+ipcMain.on('open-settings', (_e, section) => openSettings(section));
+
+// Vinculación con Claude Code (hooks en ~/.claude/settings.json)
+ipcMain.handle('claude-link-status', () => claudeHooks.status());
+ipcMain.handle('claude-link-set', (_e, link) => {
+  const result = claudeHooks.set(!!link);
+  send('claude-link', result);
+  return result;
+});
 ipcMain.handle('settings-get', () => ({ ...settings, openAtLogin: app.getLoginItemSettings(LOGIN).openAtLogin }));
 ipcMain.on('settings-set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return;
@@ -389,7 +403,7 @@ function buildTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate([
     ...(updateReady ? [{ label: `Reiniciar para actualizar a ${updateReady.version}`, click: () => updateReady.install() }, { type: 'separator' }] : []),
     { label: 'Mostrar / ocultar', click: () => (win.isVisible() ? win.hide() : win.showInactive()) },
-    { label: 'Configuración…', click: openSettings },
+    { label: 'Configuración…', click: () => openSettings() },
     { type: 'separator' },
     { label: `Versión ${app.getVersion()}`, enabled: false },
     { label: 'Salir', click: () => { app.isQuitting = true; app.quit(); } },

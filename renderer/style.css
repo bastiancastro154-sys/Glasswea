@@ -230,3 +230,8 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
   font: inherit; font-size: 12px; opacity: .75; border: 1px dashed rgba(255, 255, 255, .3);
 }
 [hidden] { display: none !important; }
+
+/* El recuadro de Claude Code abre su vinculación */
+#claude { cursor: pointer; transition: background .15s ease; }
+#claude:hover { background: rgba(255, 255, 255, .17); }
+#claude:focus-visible { outline: 2px solid rgba(255, 255, 255, .7); outline-offset: 2px; }

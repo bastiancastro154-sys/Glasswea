@@ -26,6 +26,7 @@ const state = {
   timer: { mode: 'focus', total: FOCUS, remaining: FOCUS, running: false, endAt: 0, finishedAt: 0 },
   audio: { volume: null, muted: false, micMuted: null },
   volFlashUntil: 0,
+  claudeLinked: null,
   updateNoteUntil: 0,
   updateVersion: '',
   favorites: [],
@@ -173,7 +174,7 @@ function renderExpanded() {
   const cIcon = c.state === 'working' ? ICONS.spark.replace('<svg', '<svg class="spin"')
     : c.state === 'done' ? ICONS.check : c.state === 'attention' ? ICONS.bell : ICONS.spark;
   if ($('claude-icon').dataset.k !== cIcon) { $('claude-icon').innerHTML = cIcon; $('claude-icon').dataset.k = cIcon; }
-  const label = { off: 'Sin sesión', idle: 'En espera', working: c.detail || 'Trabajando…', done: 'Terminó', attention: c.detail || 'Necesita tu atención' }[c.state];
+  const label = { off: state.claudeLinked === false ? 'Vincular…' : 'Sin sesión', idle: 'En espera', working: c.detail || 'Trabajando…', done: 'Terminó', attention: c.detail || 'Necesita tu atención' }[c.state];
   $('claude-detail').textContent = label;
   $('claude-detail').title = label;
   document.querySelector('#claude .tile-label').textContent = c.project ? `Claude · ${c.project}` : 'Claude Code';
@@ -319,6 +320,9 @@ function applySettings(s) {
   render();
 }
 $('btn-settings').onclick = () => api?.openSettings();
+$('claude').onclick = () => api?.openSettings('claude');
+$('claude').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') api?.openSettings('claude'); };
+function onClaudeLink(s) { state.claudeLinked = !!(s && s.linked); render(); }
 
 // ---------- Volumen y acciones rápidas ----------
 let lastVolInput = 0;
@@ -491,6 +495,8 @@ if (api) {
   api.getAudio().then(onAudio);
   api.onFavorites(onFavorites);
   api.getFavorites().then(onFavorites);
+  api.onClaudeLink(onClaudeLink);
+  api.getClaudeLink().then(onClaudeLink);
   setupBlur();
   trackBlur();
 } else {

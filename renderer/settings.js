@@ -111,4 +111,33 @@ $('fav-add-folder').onclick = () => api.addFavorite('folder');
 api.onFavorites(showFavorites);
 api.getFavorites().then(showFavorites);
 
+// ---------- Vinculación con Claude Code ----------
+function showLink(s) {
+  const st = $('link-status');
+  const btn = $('link-toggle');
+  btn.disabled = false;
+  btn.textContent = s.linked ? 'Desvincular' : 'Vincular';
+  btn.dataset.linked = s.linked ? '1' : '';
+  st.className = s.error ? 'warn' : s.linked ? 'ok' : '';
+  st.textContent = s.error ? s.error
+    : s.linked ? 'Vinculado con Claude Code'
+    : s.claudeFound ? 'Sin vincular' : 'Sin vincular · no se encontró Claude Code en este equipo';
+}
+$('link-toggle').onclick = async () => {
+  $('link-toggle').disabled = true;
+  showLink(await api.setClaudeLink(!$('link-toggle').dataset.linked));
+};
+api.getClaudeLink().then(showLink);
+
+function focusSection(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  $('picker').hidden = true;
+  el.scrollIntoView({ block: 'start' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1500);
+}
+api.onFocusSection(focusSection);
+if (location.hash) setTimeout(() => focusSection(location.hash.slice(1)), 100);
+
 api.getSettings().then(show);
