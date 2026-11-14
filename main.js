@@ -7,7 +7,7 @@ const { spawn } = require('child_process');
 const claudeHooks = require('./hooks');
 
 const HOOK_PORT = claudeHooks.PORT;
-const WIN_W = 480;
+const WIN_W = 940; // deja sitio al panel lateral que se despliega a la derecha
 const WIN_H = 480;
 const AUDIO_SCRIPT = path.join(__dirname, 'scripts', 'audio.ps1').replace('app.asar', 'app.asar.unpacked');
 const APPS_SCRIPT = path.join(__dirname, 'scripts', 'apps.ps1').replace('app.asar', 'app.asar.unpacked');
@@ -722,6 +722,7 @@ function startHookServer() {
         SessionEnd: { state: 'off', detail: '' },
       };
       const m = map[ev.hook_event_name];
+      lastHookAt = Date.now();
       if (m) send('claude', { ...m, project, at: Date.now() });
     });
   });
@@ -750,13 +751,14 @@ function openSettings(section) {
 ipcMain.on('open-settings', (_e, section) => openSettings(section));
 
 // Vinculación con Claude Code (hooks en ~/.claude/settings.json)
-ipcMain.handle('claude-link-status', () => claudeHooks.status());
+let lastHookAt = 0; // último aviso recibido de Claude Code desde que se abrió la isla
+ipcMain.handle('claude-link-status', () => ({ ...claudeHooks.status(), lastHookAt }));
 ipcMain.handle('claude-link-set', (_e, link) => {
-  const result = claudeHooks.set(!!link);
+  const result = { ...claudeHooks.set(!!link), lastHookAt };
   send('claude-link', result);
   return result;
 });
-ipcMain.handle('claude-usage-set', (_e, on) => claudeHooks.setUsage(!!on));
+ipcMain.handle('claude-usage-set', (_e, on) => ({ ...claudeHooks.setUsage(!!on), lastHookAt }));
 ipcMain.handle('settings-get', () => ({ ...settings, openAtLogin: app.getLoginItemSettings(LOGIN).openAtLogin }));
 ipcMain.on('settings-set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return;
@@ -828,6 +830,8 @@ function buildTrayMenu() {
 
 app.whenReady().then(() => {
   loadSettings();
+  // Si la vinculación viene de una versión anterior, se reescribe con el comando actual.
+  try { if (claudeHooks.status().outdated) claudeHooks.set(true); } catch { /* se deja como está */ }
   loadUsage();
   createWindow();
   createTray();

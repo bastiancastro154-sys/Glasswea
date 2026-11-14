@@ -237,6 +237,10 @@ api.getFavorites().then(showFavorites);
 
 // ---------- Vinculación con Claude Code ----------
 function showLink(s) {
+  const last = $('link-last');
+  if (!s.linked) last.textContent = '';
+  else if (s.lastHookAt) last.textContent = `Último aviso recibido de Claude Code: ${new Date(s.lastHookAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. La conexión funciona.`;
+  else last.textContent = 'Aún no ha llegado ningún aviso desde que abriste la isla. La isla solo muestra actividad de Claude Code (el de la terminal o la pestaña "Code" de la app de escritorio); las conversaciones de claude.ai o del chat de la app no envían avisos. Abre una sesión nueva de Claude Code y escribe algo.';
   const st = $('link-status');
   const btn = $('link-toggle');
   btn.disabled = false;
@@ -287,6 +291,7 @@ $('link-toggle').onclick = async () => {
   showLink(await api.setClaudeLink(!$('link-toggle').dataset.linked));
 };
 api.getClaudeLink().then(showLink);
+setInterval(() => api.getClaudeLink().then(showLink), 5000); // refresca "último aviso recibido"
 
 function focusSection(id) {
   const el = document.getElementById(id);

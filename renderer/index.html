@@ -43,19 +43,6 @@
           <div class="tile-value" id="claude-detail">Sin sesión</div>
         </div>
       </section>
-
-      <section id="timer" class="tile">
-        <svg id="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle id="ring-fill" cx="18" cy="18" r="15"/></svg>
-        <div class="tile-body">
-          <div class="tile-label" id="timer-label">Enfoque</div>
-          <div class="tile-value" id="timer-value">25:00</div>
-        </div>
-        <div class="tile-actions">
-          <button id="timer-toggle" title="Iniciar / pausar"></button>
-          <button id="timer-reset" title="Reiniciar"><svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg></button>
-          <button id="timer-mode" title="Cambiar enfoque / descanso"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3 1.4-1.4L21.8 8l-5.4 5.4L15 12l3-3H7zM17 17H6l3 3-1.4 1.4L2.2 16l5.4-5.4L9 12l-3 3h11z"/></svg></button>
-        </div>
-      </section>
     </div>
 
     <div id="usage" hidden>
@@ -76,9 +63,34 @@
       </div>
     </div>
 
+    <button id="drawer-handle" title="Enfoque y calendario" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7-1.5-1.5L13 12 7.5 6.5z"/></svg></button>
+
     <div id="shelf">
       <div id="shelf-tabs" role="tablist"></div>
       <div id="favorites"></div>
+    </div>
+  </div>
+  <div id="drawer">
+      <section id="timer" class="tile">
+        <svg id="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle id="ring-fill" cx="18" cy="18" r="15"/></svg>
+        <div class="tile-body">
+          <div class="tile-label" id="timer-label">Enfoque</div>
+          <div class="tile-value" id="timer-value">25:00</div>
+        </div>
+        <div class="tile-actions">
+          <button id="timer-toggle" title="Iniciar / pausar"></button>
+          <button id="timer-reset" title="Reiniciar"><svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg></button>
+          <button id="timer-mode" title="Cambiar enfoque / descanso"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3 1.4-1.4L21.8 8l-5.4 5.4L15 12l3-3H7zM17 17H6l3 3-1.4 1.4L2.2 16l5.4-5.4L9 12l-3 3h11z"/></svg></button>
+        </div>
+      </section>
+    <div id="calendar">
+      <div id="cal-head">
+        <span id="cal-title"></span>
+        <button id="cal-prev" title="Mes anterior"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7 1.5-1.5L11 12l5.5-5.5z"/></svg></button>
+        <button id="cal-today" title="Volver a hoy">Hoy</button>
+        <button id="cal-next" title="Mes siguiente"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7-1.5-1.5L13 12 7.5 6.5z"/></svg></button>
+      </div>
+      <div id="cal-grid"></div>
     </div>
   </div>
 </div>

@@ -6,7 +6,11 @@ const path = require('path');
 
 const PORT = 47821;
 const MARK = `127.0.0.1:${PORT}/hook`;
-const COMMAND = `curl -s -m 1 -X POST -H "Content-Type: application/json" --data-binary @- http://${MARK} || exit 0`;
+// En Windows Claude Code ejecuta los hooks con Git Bash o, si no está, con PowerShell: el comando debe valer en ambos
+// (por eso curl.exe, que en PowerShell no es el alias de Invoke-WebRequest, y "; exit 0" en lugar de "||").
+const COMMAND = process.platform === 'win32'
+  ? `curl.exe -s -m 1 -X POST -H "Content-Type: application/json" --data-binary "@-" http://${MARK}; exit 0`
+  : `curl -s -m 1 -X POST -H "Content-Type: application/json" --data-binary @- http://${MARK} || exit 0`;
 const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'SessionEnd'];
 const WITH_MATCHER = new Set(['PreToolUse', 'PostToolUse']);
 // Consumo del plan: Claude Code entrega esos datos a su "barra de estado". El comando se los reenvía a la
@@ -32,7 +36,7 @@ function isOurs(group) {
 }
 
 function status() {
-  const result = { linked: false, usage: 'off', claudeFound: fs.existsSync(claudeDir()), file: settingsFile(), error: null };
+  const result = { linked: false, outdated: false, usage: 'off', claudeFound: fs.existsSync(claudeDir()), file: settingsFile(), error: null };
   try {
     const data = read();
     const hooks = data.hooks || {};
@@ -40,6 +44,8 @@ function status() {
     // 'foreign': el usuario ya tiene su propia barra de estado; no se toca.
     result.usage = !sl ? 'off' : String(sl.command || '').includes(SL_MARK) ? 'on' : 'foreign';
     result.linked = EVENTS.every((ev) => Array.isArray(hooks[ev]) && hooks[ev].some(isOurs));
+    // Vinculado con el comando de una versión anterior: conviene reescribirlo.
+    result.outdated = result.linked && EVENTS.some((ev) => hooks[ev].some((g) => isOurs(g) && g.hooks.some((h) => (h.command || '').includes(MARK) && h.command !== COMMAND)));
   } catch (e) {
     result.error = `No se pudo leer ${settingsFile()}: ${e.message}`;
   }

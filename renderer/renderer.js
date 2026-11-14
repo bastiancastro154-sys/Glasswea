@@ -182,10 +182,11 @@ function renderExpanded() {
   const cIcon = c.state === 'working' ? ICONS.spark.replace('<svg', '<svg class="spin"')
     : c.state === 'done' ? ICONS.check : c.state === 'attention' ? ICONS.bell : ICONS.spark;
   if ($('claude-icon').dataset.k !== cIcon) { $('claude-icon').innerHTML = cIcon; $('claude-icon').dataset.k = cIcon; }
-  const label = { off: state.claudeLinked === false ? 'Vincular…' : 'Sin sesión', idle: 'En espera', working: c.detail || 'Trabajando…', done: 'Terminó', attention: c.detail || 'Necesita tu atención' }[c.state];
+  const label = { off: state.claudeLinked === false ? 'Vincular…' : 'Sin sesión activa', idle: 'En espera', working: c.detail || 'Trabajando…', done: 'Terminó', attention: c.detail || 'Necesita tu atención' }[c.state];
   $('claude-detail').textContent = label;
   $('claude-detail').title = label;
-  document.querySelector('#claude .tile-label').textContent = c.project ? `Claude · ${c.project}` : 'Claude Code';
+  document.querySelector('#claude .tile-label').textContent = c.project && c.state !== 'off' ? `Claude · ${c.project}`
+    : state.claudeLinked && c.state === 'off' ? 'Claude Code · vinculado' : 'Claude Code';
 
   const rem = timerRemaining();
   $('timer-label').textContent = t.mode === 'focus' ? 'Enfoque' : 'Descanso';
@@ -248,16 +249,76 @@ function render() {
   const island = $('island');
   const compactWidth = renderCompact();
   renderExpanded();
+  $('drawer-handle').classList.toggle('running', state.timer.running);
+  $('drawer-handle').title = state.timer.running ? `Enfoque y calendario · quedan ${fmt(timerRemaining())}` : 'Enfoque y calendario';
   if (state.hover) {
+    // Con el panel lateral abierto la isla crece hacia la derecha: se desplaza la mitad de lo que crece
+    // para que el borde izquierdo no se mueva.
+    const extra = drawerOpen ? DRAWER_W : 0;
     island.dataset.mode = 'expanded';
-    island.style.width = '420px';
-    island.style.height = `${$('expanded').offsetHeight}px`;
+    island.classList.toggle('drawer-open', drawerOpen);
+    island.style.width = `${420 + extra}px`;
+    island.style.height = `${Math.max($('expanded').offsetHeight, drawerOpen ? $('drawer').offsetHeight : 0)}px`;
+    island.style.transform = `translateX(calc(-50% + ${extra / 2}px))`;
   } else {
     island.dataset.mode = 'compact';
     island.style.width = `${Math.round(compactWidth)}px`;
     island.style.height = '36px';
+    island.style.transform = '';
   }
 }
+
+// ---------- Panel lateral: enfoque y calendario ----------
+const DRAWER_W = 236;
+let drawerOpen = false;
+try { drawerOpen = localStorage.getItem('drawer') === '1'; } catch { /* sin almacenamiento */ }
+const cal = { year: new Date().getFullYear(), month: new Date().getMonth(), builtFor: '' };
+function buildCalendar() {
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  cal.builtFor = `${todayKey}|${cal.year}-${cal.month}`;
+  const first = new Date(cal.year, cal.month, 1);
+  const month = first.toLocaleDateString('es', { month: 'long' });
+  $('cal-title').textContent = `${month[0].toUpperCase()}${month.slice(1)} ${cal.year}`;
+  const grid = $('cal-grid');
+  grid.textContent = '';
+  for (const d of ['L', 'M', 'X', 'J', 'V', 'S', 'D']) {
+    const el = document.createElement('div');
+    el.className = 'dow'; el.textContent = d;
+    grid.append(el);
+  }
+  const start = new Date(cal.year, cal.month, 1 - ((first.getDay() + 6) % 7)); // la semana empieza en lunes
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const el = document.createElement('div');
+    el.className = 'day';
+    if (d.getMonth() !== cal.month) el.classList.add('out');
+    if (d.getDay() === 0 || d.getDay() === 6) el.classList.add('weekend');
+    if (`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === todayKey) { el.classList.add('today'); el.setAttribute('aria-current', 'date'); }
+    el.textContent = d.getDate();
+    grid.append(el);
+  }
+}
+function calendarTick() { // al cambiar de día se vuelve a marcar "hoy"
+  const now = new Date();
+  if (!cal.builtFor.startsWith(`${now.getFullYear()}-${now.getMonth()}-${now.getDate()}|`)) buildCalendar();
+}
+function moveMonth(delta) {
+  const d = new Date(cal.year, cal.month + delta, 1);
+  cal.year = d.getFullYear(); cal.month = d.getMonth();
+  buildCalendar();
+}
+$('cal-prev').onclick = () => moveMonth(-1);
+$('cal-next').onclick = () => moveMonth(1);
+$('cal-today').onclick = () => { const n = new Date(); cal.year = n.getFullYear(); cal.month = n.getMonth(); buildCalendar(); };
+$('drawer-handle').onclick = () => {
+  drawerOpen = !drawerOpen;
+  try { localStorage.setItem('drawer', drawerOpen ? '1' : '0'); } catch { /* sin almacenamiento */ }
+  $('drawer-handle').setAttribute('aria-expanded', String(drawerOpen));
+  render();
+};
+$('drawer-handle').setAttribute('aria-expanded', String(drawerOpen));
+buildCalendar();
 
 // ---------- Temporizador ----------
 function timerTick() {
@@ -818,5 +879,5 @@ if (api) {
   demo.start();
 }
 
-setInterval(() => { timerTick(); render(); }, 1000);
+setInterval(() => { timerTick(); calendarTick(); render(); }, 1000);
 render();

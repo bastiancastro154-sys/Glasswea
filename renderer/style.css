@@ -48,7 +48,7 @@ body.demo {
     0 10px 28px rgba(0, 0, 0, .32),
     0 0 26px rgba(var(--accent), calc(.3 * var(--tint)));
   transition:
-    width .5s var(--ease), height .5s var(--ease), border-radius .5s var(--ease),
+    width .5s var(--ease), height .5s var(--ease), border-radius .5s var(--ease), transform .5s var(--ease),
     background 1.2s ease, box-shadow 1.2s ease;
   text-shadow: 0 1px 2px rgba(0, 0, 0, .45);
 }
@@ -160,7 +160,7 @@ button:active { transform: scale(.88); }
 button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
 #btn-play svg { width: 22px; height: 22px; }
 
-#tiles { display: grid; grid-template-columns: 1fr 1.25fr; gap: 10px; }
+#tiles { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .tile {
   display: flex; align-items: center; gap: 9px;
   min-width: 0;
@@ -314,3 +314,35 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 #others .o-app { opacity: .65; }
 #others .o-btn { width: 26px; height: 26px; flex: none; }
 #others .o-btn svg { width: 15px; height: 15px; }
+
+/* ---------- Panel lateral derecho: enfoque y calendario ---------- */
+#drawer-handle {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  width: 12px; height: 52px; border-radius: 6px; opacity: .45; background: rgba(255, 255, 255, .1);
+}
+#drawer-handle:hover { opacity: 1; background: rgba(255, 255, 255, .22); }
+#drawer-handle svg { width: 12px; height: 12px; transition: transform .3s ease; }
+#drawer-handle.running { opacity: .9; background: rgba(var(--accent), .55); }
+#island.drawer-open #drawer-handle svg { transform: rotate(180deg); }
+#drawer {
+  position: absolute; top: 0; left: 420px; width: 236px; z-index: 2;
+  padding: 16px 16px 16px 4px;
+  display: flex; flex-direction: column; gap: 12px;
+  opacity: 0; pointer-events: none; transition: opacity .25s ease;
+}
+#drawer::before { content: ""; position: absolute; left: -4px; top: 16px; bottom: 16px; width: 1px; background: rgba(255, 255, 255, .16); }
+#island[data-mode="expanded"].drawer-open #drawer { opacity: 1; pointer-events: auto; transition-delay: .12s; }
+
+#calendar { font-variant-numeric: tabular-nums; }
+#cal-head { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
+#cal-title { flex: 1; font-size: 12.5px; font-weight: 600; white-space: nowrap; padding-left: 4px; }
+#cal-head button { width: 24px; height: 24px; }
+#cal-head button svg { width: 13px; height: 13px; }
+#cal-today { width: auto !important; padding: 0 8px; border-radius: 12px; font: inherit; font-size: 11px; }
+#cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; text-align: center; font-size: 11.5px; }
+#cal-grid .dow { opacity: .55; font-size: 10px; text-transform: uppercase; padding-bottom: 3px; }
+#cal-grid .day { height: 24px; line-height: 24px; border-radius: 12px; }
+#cal-grid .day.out { opacity: .32; }
+#cal-grid .day.weekend { opacity: .75; }
+#cal-grid .day.out.weekend { opacity: .28; }
+#cal-grid .day.today { background: #fff; color: #16161d; font-weight: 700; opacity: 1; text-shadow: none; }
