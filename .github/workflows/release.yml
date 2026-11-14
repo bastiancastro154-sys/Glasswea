@@ -1,34 +1,46 @@
 name: Publicar versión
 
+# Cada vez que cambia la versión de package.json en main se compila el instalador
+# y se publica como release vX.Y.Z. Si esa versión ya está publicada, no hace nada.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  build:
+  release:
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - name: Comprobar que la etiqueta coincide con package.json
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Comprobar si la versión ya está publicada
+        id: check
         shell: bash
         run: |
           v="v$(node -p "require('./package.json').version")"
-          if [ "$v" != "$GITHUB_REF_NAME" ]; then echo "La etiqueta $GITHUB_REF_NAME no coincide con la versión $v"; exit 1; fi
+          echo "tag=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "La versión $v ya está publicada."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.publish == 'true'
+        with:
+          node-version: 20
+          cache: npm
+      - name: Instalar dependencias
+        if: steps.check.outputs.publish == 'true'
+        run: npm ci
       - name: Compilar y publicar el instalador
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.check.outputs.publish == 'true'
         run: npx electron-builder --win nsis --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Compilar sin publicar
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        run: npx electron-builder --win nsis --publish never

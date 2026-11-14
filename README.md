@@ -19,10 +19,8 @@ se actualiza sola: al publicarse una versión nueva la descarga y ofrece reinici
 
 ## Publicar una versión
 
-1. Sube el número de `version` en `package.json`.
-2. Crea y sube una etiqueta con ese número, por ejemplo `v1.2.0`.
-
-GitHub Actions compila el instalador y lo publica como release.
+Sube el número de `version` en `package.json` y lleva el cambio a `main`. GitHub Actions compila el
+instalador y lo publica como release `vX.Y.Z`. Los cambios que no tocan la versión no publican nada.
 
 ## Desarrollo (Windows 10/11, Node.js 18+)
 
