@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
+<title>Glass Island</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="island" data-mode="compact">
+  <video id="backdrop" muted playsinline></video>
+  <div id="tint"></div>
+  <div id="compact">
+    <span id="c-icon"></span>
+    <span id="c-text"></span>
+    <span id="c-bar"><i></i></span>
+    <span id="c-side"></span>
+  </div>
+
+  <div id="expanded">
+    <button id="btn-settings" title="Configuración"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.5 7.5 0 0 0-1.700-1L15 3.200h-4l-.4 2.700a7.5 7.5 0 0 0-1.700 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.5 7.5 0 0 0 1.700 1l.4 2.700h4l.4-2.700a7.5 7.5 0 0 0 1.700-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
+    <section id="music">
+      <div id="art"><img id="art-img" alt=""></div>
+      <div id="track">
+        <div id="title">Nada sonando</div>
+        <div id="artist">Reproduce algo y aparecerá aquí</div>
+        <div id="bar"><div id="bar-fill"></div></div>
+        <div id="times"><span id="t-pos">0:00</span><span id="t-dur">0:00</span></div>
+      </div>
+      <div id="controls">
+        <button data-media="prev" title="Anterior"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button data-media="toggle" id="btn-play" title="Reproducir / pausar"></button>
+        <button data-media="next" title="Siguiente"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+      </div>
+    </section>
+
+    <div id="tiles">
+      <section id="claude" class="tile" data-state="off">
+        <div class="tile-icon" id="claude-icon"></div>
+        <div class="tile-body">
+          <div class="tile-label">Claude Code</div>
+          <div class="tile-value" id="claude-detail">Sin sesión</div>
+        </div>
+      </section>
+
+      <section id="timer" class="tile">
+        <svg id="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle id="ring-fill" cx="18" cy="18" r="15"/></svg>
+        <div class="tile-body">
+          <div class="tile-label" id="timer-label">Enfoque</div>
+          <div class="tile-value" id="timer-value">25:00</div>
+        </div>
+        <div class="tile-actions">
+          <button id="timer-toggle" title="Iniciar / pausar"></button>
+          <button id="timer-reset" title="Reiniciar"><svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg></button>
+          <button id="timer-mode" title="Cambiar enfoque / descanso"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3 1.4-1.4L21.8 8l-5.4 5.4L15 12l3-3H7zM17 17H6l3 3-1.4 1.4L2.2 16l5.4-5.4L9 12l-3 3h11z"/></svg></button>
+        </div>
+      </section>
+    </div>
+
+    <div id="vol-row">
+      <div id="volume">
+        <button id="vol-mute" title="Silenciar"></button>
+        <input type="range" id="vol-slider" min="0" max="100" value="0" aria-label="Volumen" disabled>
+        <span id="vol-value">–</span>
+      </div>
+      <div id="actions">
+        <button data-action="screenshot" title="Recorte de pantalla"><svg viewBox="0 0 24 24"><path d="M7 1v4H1v2h6v10h10v6h2v-6h4v-2H9V1zm4 4v2h6v6h2V5z"/></svg></button>
+        <button data-action="mic" id="act-mic" title="Silenciar micrófono"></button>
+        <button data-action="lock" title="Bloquear equipo"><svg viewBox="0 0 24 24"><path d="M17 9V7A5 5 0 0 0 7 7v2H5v13h14V9zM9 7a3 3 0 0 1 6 0v2H9zm3 11a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg></button>
+      </div>
+    </div>
+
+    <div id="favorites"></div>
+  </div>
+</div>
+<script src="renderer.js"></script>
+</body>
+</html>

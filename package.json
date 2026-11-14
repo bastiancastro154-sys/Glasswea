@@ -1,0 +1,57 @@
+{
+  "name": "glass-island",
+  "version": "1.1.0",
+  "description": "Isla dinámica de cristal para Windows: música, Claude Code y temporizador de enfoque",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "install-hooks": "node scripts/install-hooks.js",
+    "uninstall-hooks": "node scripts/install-hooks.js --remove",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "local.glass.island",
+    "productName": "Glass Island",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "scripts/media.ps1",
+      "scripts/audio.ps1",
+      "assets/**"
+    ],
+    "asarUnpack": [
+      "scripts/media.ps1",
+      "scripts/audio.ps1"
+    ],
+    "win": {
+      "icon": "assets/icon.png",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Glass-Island-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "bastiancastro154-sys",
+        "repo": "Glasswea",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "author": "bastiancastro154-sys",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bastiancastro154-sys/Glasswea.git"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  }
+}

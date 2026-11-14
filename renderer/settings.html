@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
+<title>Glass Island · Configuración</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #16161d; color: #ecebf2; font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; padding: 18px 20px; user-select: none; }
+  h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #8d8ba0; margin: 18px 0 8px; }
+  h2:first-child { margin-top: 0; }
+  .row { display: flex; align-items: center; gap: 12px; min-height: 34px; }
+  .row > label:first-child, .row > span:first-child { flex: 1; }
+  .row output { width: 44px; text-align: right; color: #a9a7bb; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 150px; accent-color: #8f8cff; }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: #8f8cff; }
+  input[type=number] { width: 64px; padding: 5px 6px; border-radius: 6px; border: 1px solid #34333f; background: #1f1f29; color: inherit; font: inherit; }
+  input[type=color] { width: 40px; height: 26px; padding: 0; border: 1px solid #34333f; border-radius: 6px; background: none; }
+  select { padding: 5px 6px; border-radius: 6px; border: 1px solid #34333f; background: #1f1f29; color: inherit; font: inherit; }
+  :focus-visible { outline: 2px solid #8f8cff; outline-offset: 2px; }
+  .hint { color: #8d8ba0; font-size: 12px; margin-top: 2px; }
+  button { margin-top: 20px; padding: 7px 14px; border-radius: 8px; border: 1px solid #34333f; background: #1f1f29; color: inherit; font: inherit; cursor: pointer; }
+  button:hover { background: #2a2a37; }
+  .disabled { opacity: .4; pointer-events: none; }
+  #fav-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .fav { display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 8px; border-radius: 8px; background: #1f1f29; }
+  .fav img, .fav .letter { width: 22px; height: 22px; flex: none; }
+  .fav .letter { display: grid; place-items: center; border-radius: 6px; background: #34333f; font-weight: 700; font-size: 11px; }
+  .fav .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fav button, .inline button { margin: 0; padding: 4px 10px; }
+  .inline { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+  <h2>Cristal</h2>
+  <div class="row"><label for="tint">Intensidad del color</label><input type="range" id="tint" min="0" max="100"><output for="tint"></output></div>
+  <div class="row"><label for="dark">Oscurecer</label><input type="range" id="dark" min="0" max="80"><output for="dark"></output></div>
+  <div class="row"><label for="sheen">Reflejos</label><input type="range" id="sheen" min="0" max="100"><output for="sheen"></output></div>
+
+  <h2>Desenfoque</h2>
+  <div class="row"><label for="blur">Difuminar el escritorio</label><input type="checkbox" id="blur"></div>
+  <div class="row" id="row-blurPx"><label for="blurPx">Cantidad</label><input type="range" id="blurPx" min="2" max="40"><output for="blurPx"></output></div>
+  <p class="hint">Con el desenfoque activo, la isla no aparece en capturas de pantalla.</p>
+
+  <h2>Color</h2>
+  <div class="row"><label for="colorMode">Origen</label>
+    <select id="colorMode"><option value="auto">Según la música</option><option value="fixed">Color fijo</option></select></div>
+  <div class="row" id="row-color"><label for="color">Color fijo</label><input type="color" id="color"></div>
+
+  <h2>Módulos</h2>
+  <div class="row"><label for="showVolume">Volumen</label><input type="checkbox" id="showVolume"></div>
+  <div class="row"><label for="showActions">Acciones rápidas</label><input type="checkbox" id="showActions"></div>
+  <div class="row"><label for="showFavorites">Apps favoritas</label><input type="checkbox" id="showFavorites"></div>
+
+  <h2>Apps favoritas</h2>
+  <div id="fav-list"></div>
+  <div class="inline"><button id="fav-add-app">Añadir app…</button><button id="fav-add-folder">Añadir carpeta…</button></div>
+  <p class="hint">Hasta 10. Puedes elegir un .exe o un acceso directo del menú Inicio.</p>
+
+  <h2>Temporizador</h2>
+  <div class="row"><label for="focusMin">Enfoque (minutos)</label><input type="number" id="focusMin" min="1" max="180"></div>
+  <div class="row"><label for="breakMin">Descanso (minutos)</label><input type="number" id="breakMin" min="1" max="60"></div>
+
+  <h2>Sistema</h2>
+  <div class="row"><label for="openAtLogin">Iniciar con Windows</label><input type="checkbox" id="openAtLogin"></div>
+
+  <button id="reset">Restablecer valores</button>
+  <script src="settings.js"></script>
+</body>
+</html>
