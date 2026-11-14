@@ -36,6 +36,14 @@
   .fav.off .name, .fav.off img, .fav.off .letter { opacity: .4; }
   .fav img { border-radius: 5px; object-fit: cover; }
   .fav .src { color: #8d8ba0; font-size: 11px; flex: none; }
+  .project { border: 1px solid #2a2a37; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+  .project-head { display: flex; gap: 8px; margin-bottom: 8px; }
+  .project-head input, .project-url input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px; border: 1px solid #34333f; background: #1f1f29; color: inherit; font: inherit; }
+  .project button { margin: 0; padding: 4px 10px; }
+  .project .items { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .project .items:empty::after { content: 'Sin elementos todavía.'; color: #8d8ba0; }
+  .project .type { width: 54px; flex: none; color: #8d8ba0; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .project-url { display: flex; gap: 8px; margin-top: 8px; }
   #picker { position: fixed; inset: 0; background: #16161d; display: flex; flex-direction: column; padding: 16px 20px; }
   #picker header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
   #picker header button { margin: 0; }
@@ -75,6 +83,7 @@
   <div class="row"><label for="showGames">Juegos</label><input type="checkbox" id="showGames"></div>
   <div class="row"><label for="showLaunchers">Launchers</label><input type="checkbox" id="showLaunchers"></div>
   <div class="row"><label for="showOffice">Office</label><input type="checkbox" id="showOffice"></div>
+  <div class="row"><label for="showProjects">Proyectos</label><input type="checkbox" id="showProjects"></div>
   <div class="row"><label for="showUsage">Consumo del plan de Claude</label><input type="checkbox" id="showUsage"></div>
 
   <h2>Apps favoritas</h2>
@@ -95,6 +104,11 @@
   <div class="lib-list" id="lib-office"></div>
   <div class="inline"><button id="lib-add-office">Añadir app…</button></div>
   <p class="hint">En la isla, Word, Excel, PowerPoint y similares despliegan sus documentos recientes al hacer clic.</p>
+
+  <h2 id="proyectos">Proyectos</h2>
+  <div id="project-list"></div>
+  <div class="inline"><button id="project-new">Nuevo proyecto</button></div>
+  <p class="hint">Un proyecto reúne archivos, carpetas, apps y webs, y la isla los abre todos con un clic. Hasta 20 elementos por proyecto.</p>
 
   <h2>Temporizador</h2>
   <div class="row"><label for="focusMin">Enfoque (minutos)</label><input type="number" id="focusMin" min="1" max="180"></div>

@@ -1,7 +1,7 @@
 const api = window.islandAPI;
 const $ = (id) => document.getElementById(id);
 const UNITS = { tint: '%', dark: '%', sheen: '%', blurPx: ' px' };
-const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage', 'showGames', 'showLaunchers', 'showOffice'];
+const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage', 'showGames', 'showLaunchers', 'showOffice', 'showProjects'];
 
 function show(s) {
   for (const k of FIELDS) {
@@ -83,6 +83,11 @@ function renderApps() {
     b.disabled = added || full;
     b.onclick = async () => {
       if (pickerTarget === 'favorites') return api.addFavoriteApp(a.id);
+      if (pickerTarget.startsWith('project:')) {
+        await api.addProjectItem(pickerTarget.slice(8), 'app', a.id);
+        $('picker').hidden = true;
+        return;
+      }
       await api.addLibrary(pickerTarget, a.id);
       $('picker').hidden = true;
     };
@@ -147,6 +152,78 @@ $('lib-refresh').onclick = async () => {
   $('lib-refresh').disabled = false;
   $('lib-refresh').textContent = 'Volver a buscar';
 };
+// ---------- Proyectos ----------
+const TYPE_LABEL = { file: 'Archivo', folder: 'Carpeta', app: 'App', url: 'Web' };
+function showProjects(list) {
+  const box = $('project-list');
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.project : null;
+  box.textContent = '';
+  for (const p of list) {
+    const card = document.createElement('div');
+    card.className = 'project';
+    const head = document.createElement('div');
+    head.className = 'project-head';
+    const name = document.createElement('input');
+    name.value = p.name; name.maxLength = 40; name.dataset.project = p.id;
+    name.setAttribute('aria-label', 'Nombre del proyecto');
+    name.addEventListener('change', () => api.renameProject(p.id, name.value));
+    const del = document.createElement('button');
+    del.textContent = 'Eliminar';
+    del.onclick = () => api.deleteProject(p.id);
+    head.append(name, del);
+
+    const items = document.createElement('div');
+    items.className = 'items';
+    p.items.forEach((it, i) => {
+      const row = document.createElement('div');
+      row.className = 'fav';
+      const type = document.createElement('span');
+      type.className = 'type'; type.textContent = TYPE_LABEL[it.type] || '';
+      const n = document.createElement('span');
+      n.className = 'name'; n.textContent = it.name; n.title = it.detail || it.name;
+      const rm = document.createElement('button');
+      rm.textContent = 'Quitar';
+      rm.onclick = () => api.removeProjectItem(p.id, i);
+      row.append(type, n, rm);
+      items.append(row);
+    });
+
+    const full = p.items.length >= 20;
+    const add = document.createElement('div');
+    add.className = 'inline';
+    const mk = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.disabled = full; b.onclick = fn; return b; };
+    add.append(
+      mk('Archivo…', () => api.addProjectItem(p.id, 'file')),
+      mk('Carpeta…', () => api.addProjectItem(p.id, 'folder')),
+      mk('App…', () => openPicker(`project:${p.id}`)),
+    );
+    const urlRow = document.createElement('div');
+    urlRow.className = 'project-url';
+    const url = document.createElement('input');
+    url.placeholder = 'Dirección web (ej. github.com)'; url.disabled = full;
+    url.setAttribute('aria-label', 'Dirección web');
+    const addUrl = mk('Añadir web', async () => { if (url.value.trim()) await api.addProjectItem(p.id, 'url', url.value); });
+    url.addEventListener('keydown', (e) => { if (e.key === 'Enter') addUrl.click(); });
+    urlRow.append(url, addUrl);
+
+    card.append(head, items, add, urlRow);
+    box.append(card);
+  }
+  if (focused) { // la lista se reconstruye al guardar: se devuelve el foco al mismo campo
+    const el = box.querySelector(`input[data-project="${focused}"]`);
+    if (el) { el.focus(); if (el.value === 'Proyecto nuevo') el.select(); }
+  }
+}
+$('project-new').onclick = async () => {
+  const list = await api.createProject();
+  showProjects(list);
+  const last = list[list.length - 1];
+  const el = last && $('project-list').querySelector(`input[data-project="${last.id}"]`);
+  if (el) { el.focus(); el.select(); }
+};
+api.onProjects(showProjects);
+api.getProjects().then(showProjects);
+
 api.onLibrary(showLibrary);
 api.getLibrary().then(showLibrary);
 $('app-close').onclick = () => { $('picker').hidden = true; };

@@ -20,7 +20,7 @@ const LOGIN = app.isPackaged ? {} : { path: process.execPath, args: [`"${app.get
 let win = null;
 const DEFAULTS = { blur: true, blurPx: 18, tint: 50, dark: 30, sheen: 60, colorMode: 'auto', color: '#7f8cff', focusMin: 25, breakMin: 5,
   showVolume: true, showActions: true, showFavorites: true, showUsage: true,
-  showGames: true, showLaunchers: true, showOffice: true };
+  showGames: true, showLaunchers: true, showOffice: true, showProjects: true };
 let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], extraOffice: [], hiddenLibrary: [] };
 let settingsWin = null;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
@@ -124,6 +124,14 @@ ipcMain.on('media-control', (_e, action) => {
   if (['toggle', 'next', 'prev'].includes(action)) ps(['-Action', action]);
 });
 
+// La isla no toma el foco del teclado salvo mientras se escribe en su buscador.
+ipcMain.on('set-focusable', (_e, on) => {
+  if (!win || win.isDestroyed()) return;
+  win.setFocusable(!!on);
+  win.setSkipTaskbar(true);
+  win.setAlwaysOnTop(true, 'screen-saver');
+  if (on) { win.focus(); win.webContents.focus(); } else { win.blur(); }
+});
 ipcMain.on('set-interactive', (_e, on) => {
   if (!win) return;
   if (on) win.setIgnoreMouseEvents(false);
@@ -353,10 +361,13 @@ function officeRecents(kind) {
       if (!found.has(key) || found.get(key).at < at) found.set(key, { name: m[1], at, link: full });
     }
   }
+  const pinnedNames = new Set(officePins(kind).filter((p) => !p.folder).map((p) => p.name.toLowerCase()));
   const out = [];
+  let checked = 0;
   for (const r of [...found.values()].sort((a, b) => b.at - a.at)) {
+    if (pinnedNames.has(r.name.toLowerCase())) continue; // ya aparece arriba, fijado
     let where = '';
-    if (process.platform === 'win32') {
+    if (process.platform === 'win32' && checked++ < 80) {
       try { // se descartan los documentos locales que ya no existen
         const target = shell.readShortcutLink(r.link).target;
         if (target) {
@@ -368,14 +379,131 @@ function officeRecents(kind) {
     const id = `${kind}:${r.name.toLowerCase()}`;
     recentPaths.set(id, r.link);
     out.push({ id, name: r.name, at: r.at, where });
-    if (out.length >= 12) break;
+    if (out.length >= 200) break;
   }
   return out;
 }
-ipcMain.handle('office-recents', (_e, kind) => (typeof kind === 'string' ? officeRecents(kind) : []));
+// Documentos y carpetas fijados por el usuario en cada app de Office.
+function officePins(kind) {
+  if (!settings.officePins || typeof settings.officePins !== 'object' || Array.isArray(settings.officePins)) settings.officePins = {};
+  if (!Array.isArray(settings.officePins[kind])) settings.officePins[kind] = [];
+  return settings.officePins[kind];
+}
+function officeList(kind) {
+  if (typeof kind !== 'string' || !OFFICE_APPS.some((o) => o.kind === kind)) return { pinned: [], recents: [] };
+  return {
+    pinned: officePins(kind).map((p, index) => ({ index, name: p.name, where: p.folder ? p.path : path.dirname(p.path), folder: !!p.folder })),
+    recents: officeRecents(kind),
+  };
+}
+function addPin(kind, file, folder) {
+  const pins = officePins(kind);
+  if (pins.some((p) => p.path === file)) return;
+  pins.push({ name: path.basename(file).replace(/\.lnk$/i, '') || file, path: file, folder: !!folder });
+  saveSettings();
+}
+ipcMain.handle('office-recents', (_e, kind) => officeList(kind));
 ipcMain.on('office-open-recent', (_e, id) => {
   const link = recentPaths.get(id);
   if (link) shell.openPath(link);
+});
+ipcMain.handle('office-pin-recent', (_e, kind, id) => {
+  const link = recentPaths.get(id);
+  if (link && typeof id === 'string' && id.startsWith(`${kind}:`)) {
+    let target = link; // si el acceso directo no se puede resolver, se fija el propio acceso directo
+    if (process.platform === 'win32') { try { target = shell.readShortcutLink(link).target || link; } catch { /* se usa el .lnk */ } }
+    addPin(kind, target, false);
+  }
+  return officeList(kind);
+});
+ipcMain.handle('office-pin-browse', async (_e, kind, what) => {
+  const app = OFFICE_APPS.find((o) => o.kind === kind);
+  if (!app) return officeList(kind);
+  const opts = what === 'folder'
+    ? { title: 'Fijar carpeta', properties: ['openDirectory'] }
+    : { title: 'Fijar documentos', properties: ['openFile', 'multiSelections'],
+        filters: [...(app.ext.length ? [{ name: 'Documentos', extensions: app.ext }] : []), { name: 'Todos los archivos', extensions: ['*'] }] };
+  const r = await dialog.showOpenDialog(opts);
+  if (!r.canceled) r.filePaths.forEach((f) => addPin(kind, f, what === 'folder'));
+  return officeList(kind);
+});
+ipcMain.handle('office-unpin', (_e, kind, index) => {
+  const pins = officePins(kind);
+  if (Number.isInteger(index) && pins[index]) { pins.splice(index, 1); saveSettings(); }
+  return officeList(kind);
+});
+ipcMain.on('office-open-pin', (_e, kind, index) => {
+  const p = officePins(kind)[index];
+  if (p) shell.openPath(p.path);
+});
+
+// ---------- Proyectos: conjuntos de archivos, carpetas, apps y webs que se abren de una vez ----------
+function projects() {
+  if (!Array.isArray(settings.projects)) settings.projects = [];
+  return settings.projects;
+}
+const findProject = (id) => projects().find((p) => p.id === id);
+function publicProjects() {
+  return projects().map((p) => ({ id: p.id, name: p.name, items: p.items.map((it) => ({ type: it.type, name: it.name, detail: it.path || it.url || '' })) }));
+}
+function projectsChanged() {
+  saveSettings();
+  const list = publicProjects();
+  send('projects', list);
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('projects', list);
+  return list;
+}
+ipcMain.handle('projects-get', publicProjects);
+ipcMain.handle('project-create', () => {
+  projects().push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: 'Proyecto nuevo', items: [] });
+  return projectsChanged();
+});
+ipcMain.on('project-rename', (_e, id, name) => {
+  const p = findProject(id);
+  if (!p || typeof name !== 'string') return;
+  p.name = name.trim().slice(0, 40) || 'Proyecto';
+  projectsChanged();
+});
+ipcMain.on('project-delete', (_e, id) => {
+  settings.projects = projects().filter((p) => p.id !== id);
+  projectsChanged();
+});
+ipcMain.handle('project-add-item', async (_e, id, type, payload) => {
+  const p = findProject(id);
+  if (!p || p.items.length >= 20) return publicProjects();
+  if (type === 'file' || type === 'folder') {
+    const r = await dialog.showOpenDialog(settingsWin, type === 'folder'
+      ? { title: 'Añadir carpeta al proyecto', properties: ['openDirectory'] }
+      : { title: 'Añadir archivos al proyecto', properties: ['openFile', 'multiSelections'] });
+    if (!r.canceled) {
+      for (const f of r.filePaths) {
+        if (p.items.length < 20 && !p.items.some((it) => it.path === f)) p.items.push({ type, name: path.basename(f) || f, path: f });
+      }
+    }
+  } else if (type === 'app') {
+    const a = appsCache && appsCache[payload];
+    if (a) p.items.push(a.appId ? { type, name: a.name, appId: a.appId } : { type, name: a.name, path: a.path });
+  } else if (type === 'url' && typeof payload === 'string') {
+    let url;
+    try { url = new URL(/^https?:\/\//i.test(payload.trim()) ? payload.trim() : `https://${payload.trim()}`); } catch { return publicProjects(); }
+    if (url.protocol === 'http:' || url.protocol === 'https:') p.items.push({ type, name: url.hostname + (url.pathname.length > 1 ? url.pathname : ''), url: url.href });
+  }
+  return projectsChanged();
+});
+ipcMain.on('project-remove-item', (_e, id, index) => {
+  const p = findProject(id);
+  if (!p || !Number.isInteger(index) || !p.items[index]) return;
+  p.items.splice(index, 1);
+  projectsChanged();
+});
+ipcMain.on('project-open', (_e, id) => {
+  const p = findProject(id);
+  if (!p) return;
+  // Se abren de uno en uno con una pequeña pausa para no saturar el equipo.
+  p.items.forEach((it, i) => setTimeout(() => {
+    if (it.type === 'url') shell.openExternal(it.url);
+    else launchEntry(it);
+  }, i * 350));
 });
 
 function regQuery(key, value) {

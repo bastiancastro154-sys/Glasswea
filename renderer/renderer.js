@@ -32,6 +32,7 @@ const state = {
   updateVersion: '',
   favorites: [],
   library: { games: [], launchers: [], office: [] },
+  projects: [],
 };
 
 const fmt = (s) => {
@@ -318,6 +319,7 @@ function onClaude(d) {
 // ---------- Ratón: expandir y dejar pasar los clics fuera de la isla ----------
 let leaveTimer = null;
 $('island').addEventListener('mouseenter', () => {
+  mouseInside = true;
   clearTimeout(leaveTimer);
   state.hover = true;
   api?.setInteractive(true);
@@ -325,11 +327,9 @@ $('island').addEventListener('mouseenter', () => {
   render();
 });
 $('island').addEventListener('mouseleave', () => {
-  leaveTimer = setTimeout(() => {
-    state.hover = false;
-    api?.setInteractive(false);
-    render();
-  }, 250);
+  mouseInside = false;
+  if (typing) { api?.setInteractive(false); return; } // sigue abierta hasta que el buscador pierda el foco
+  leaveTimer = setTimeout(collapse, 250);
 });
 
 // ---------- Configuración ----------
@@ -403,6 +403,7 @@ const TABS = [
   { id: 'apps', label: 'Apps', setting: 'showFavorites', empty: '＋ Agrega tus apps favoritas', section: undefined },
   { id: 'games', label: 'Juegos', setting: 'showGames', empty: 'No se encontraron juegos · añadir', section: 'juegos' },
   { id: 'launchers', label: 'Launchers', setting: 'showLaunchers', empty: 'No se encontraron launchers · añadir', section: 'juegos' },
+  { id: 'projects', label: 'Proyectos', setting: 'showProjects', empty: '＋ Crea tu primer proyecto', section: 'proyectos' },
   { id: 'office', label: 'Office', setting: 'showOffice', empty: 'No se encontraron apps de Office · añadir', section: 'office' },
 ];
 const RECENTS_KINDS = new Set(['word', 'excel', 'powerpoint', 'access', 'publisher', 'visio', 'project']);
@@ -411,6 +412,13 @@ let currentTab = 'apps';
 try { currentTab = localStorage.getItem('tab') || 'apps'; } catch { /* sin almacenamiento */ }
 
 function shelfItems(tab) {
+  if (tab === 'projects') {
+    return state.projects.map((p) => ({
+      name: p.name, chip: true, count: p.items.length,
+      title: p.items.length ? `Abrir ${p.items.length} elemento(s):\n${p.items.map((it) => `· ${it.name}`).join('\n')}` : 'Proyecto vacío: añade elementos en Configuración',
+      open: () => (p.items.length ? api?.openProject(p.id) : api?.openSettings('proyectos')),
+    }));
+  }
   if (tab === 'apps') return state.favorites.map((f, i) => ({ name: f.name, icon: f.icon, open: () => api?.openFavorite(i) }));
   return (state.library[tab] || []).map((e) => ({
     name: e.name, title: e.source ? `${e.name} · ${e.source}` : e.name, icon: e.icon, cover: tab === 'games',
@@ -447,7 +455,7 @@ function buildShelf() {
   box.textContent = '';
   box.scrollTop = 0;
   box.classList.toggle('recents', !!officeView && tab.id === 'office');
-  if (officeView && tab.id === 'office') { buildRecents(box); return render(); }
+  if (officeView && tab.id === 'office') { buildRecents(box); return; }
   const items = shelfItems(tab.id);
   if (!items.length) {
     const b = document.createElement('button');
@@ -458,9 +466,15 @@ function buildShelf() {
   }
   for (const it of items) {
     const b = document.createElement('button');
-    b.className = 'fav';
+    b.className = it.chip ? 'chip' : 'fav';
     b.title = it.title || it.name;
-    if (it.icon) {
+    if (it.chip) {
+      const n = document.createElement('span');
+      n.className = 'chip-name'; n.textContent = it.name;
+      const c = document.createElement('span');
+      c.className = 'chip-count'; c.textContent = it.count;
+      b.append(n, c);
+    } else if (it.icon) {
       const img = document.createElement('img');
       img.src = it.icon; img.alt = '';
       if (it.cover) img.className = 'cover';
@@ -486,48 +500,124 @@ function whenText(at) {
   if (days < 7) return `hace ${days} días`;
   return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
+const ICON_PIN = '<svg viewBox="0 0 24 24"><path d="M14 3l7 7-2 1-3 3 .5 5L15 20.5 10.5 16 5 21.5 3.5 20 9 14.5 4.5 10 6 8.5l5 .5 3-3z"/></svg>';
+const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M3 5h6l2 2h10v12H3z"/></svg>';
+const ICON_FILE = '<svg viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6zm7 1.5V8h4.5z"/></svg>';
+const fold = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
 async function openRecents(entry) {
-  officeView = { entry, items: null };
+  officeView = { entry, data: null, query: '' };
   buildShelf();
-  const items = api ? await api.getOfficeRecents(entry.kind) : [];
-  if (officeView && officeView.entry.id === entry.id) { officeView.items = items; buildShelf(); }
+  const data = api ? await api.getOfficeRecents(entry.kind) : { pinned: [], recents: [] };
+  if (officeView && officeView.entry.id === entry.id) { officeView.data = data; buildShelf(); }
+}
+function setOfficeData(data) {
+  if (!officeView) return;
+  officeView.data = data;
+  fillRecents();
+}
+function iconButton(cls, title, svg, onclick) {
+  const b = document.createElement('button');
+  b.className = cls; b.title = title; b.innerHTML = svg; b.onclick = onclick;
+  return b;
 }
 function buildRecents(box) {
-  const { entry, items } = officeView;
+  const { entry } = officeView;
+  const kind = entry.kind;
   const head = document.createElement('div');
   head.className = 'r-head';
   const back = document.createElement('button');
   back.className = 'r-back'; back.title = 'Volver'; back.textContent = '‹';
-  back.onclick = () => { officeView = null; buildShelf(); };
+  back.onclick = () => { officeView = null; stopTyping(); buildShelf(); };
   const name = document.createElement('span');
   name.className = 'r-app'; name.textContent = entry.name;
+  const search = document.createElement('input');
+  search.type = 'search'; search.id = 'r-search'; search.placeholder = 'Buscar…';
+  search.setAttribute('aria-label', 'Buscar documento');
+  search.value = officeView.query;
+  search.addEventListener('focus', startTyping);
+  search.addEventListener('blur', stopTyping);
+  search.addEventListener('input', () => { officeView.query = search.value; fillRecents(); });
+  search.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (search.value) { search.value = ''; officeView.query = ''; fillRecents(); } else search.blur();
+  });
   const launch = document.createElement('button');
   launch.className = 'r-launch'; launch.textContent = 'Abrir app';
   launch.onclick = () => api?.openLibrary(entry.id);
-  head.append(back, name, launch);
-  box.append(head);
-
+  head.append(back, name, search,
+    iconButton('r-add', 'Fijar documento…', ICON_FILE, async () => setOfficeData(await api.pinOfficeBrowse(kind, 'file'))),
+    iconButton('r-add', 'Fijar carpeta…', ICON_FOLDER, async () => setOfficeData(await api.pinOfficeBrowse(kind, 'folder'))),
+    launch);
   const list = document.createElement('div');
-  list.className = 'r-list';
-  if (!items || !items.length) {
-    const p = document.createElement('div');
-    p.className = 'r-empty';
-    p.textContent = items ? 'Sin documentos recientes' : 'Buscando documentos…';
-    list.append(p);
-  }
-  for (const it of items || []) {
-    const b = document.createElement('button');
-    b.className = 'r-item';
-    b.title = it.where ? `${it.name}\n${it.where}` : it.name;
+  list.className = 'r-list'; list.id = 'r-list';
+  box.append(head, list);
+  fillRecents();
+}
+// Rellena la lista (fijados primero) aplicando el texto del buscador. No toca la cabecera para no perder el foco.
+function fillRecents() {
+  const list = $('r-list');
+  if (!list || !officeView) return;
+  const { entry, data, query } = officeView;
+  const kind = entry.kind;
+  list.textContent = '';
+  const q = fold(query.trim());
+  const match = (it) => !q || fold(it.name).includes(q);
+  const pinned = data ? data.pinned.filter(match) : [];
+  const recents = data ? data.recents.filter(match).slice(0, q ? 60 : 30) : [];
+
+  const row = (it, isPinned) => {
+    const r = document.createElement('div');
+    r.className = 'r-item' + (isPinned ? ' pinned' : '');
+    const open = document.createElement('button');
+    open.className = 'r-open';
+    open.title = it.where ? `${it.name}\n${it.where}` : it.name;
     const n = document.createElement('span');
     n.className = 'r-name'; n.textContent = it.name;
     const w = document.createElement('span');
-    w.className = 'r-when'; w.textContent = whenText(it.at);
-    b.append(n, w);
-    b.onclick = () => api?.openOfficeRecent(it.id);
-    list.append(b);
+    w.className = 'r-when'; w.textContent = isPinned ? (it.folder ? 'carpeta' : 'fijado') : whenText(it.at);
+    open.append(n, w);
+    open.onclick = () => (isPinned ? api?.openOfficePin(kind, it.index) : api?.openOfficeRecent(it.id));
+    const pin = iconButton('r-pin', isPinned ? 'Quitar de fijados' : 'Fijar arriba', ICON_PIN,
+      async () => setOfficeData(isPinned ? await api.unpinOffice(kind, it.index) : await api.pinOfficeRecent(kind, it.id)));
+    r.append(open, pin);
+    return r;
+  };
+  pinned.forEach((it) => list.append(row(it, true)));
+  recents.forEach((it) => list.append(row(it, false)));
+  if (!pinned.length && !recents.length) {
+    const p = document.createElement('div');
+    p.className = 'r-empty';
+    p.textContent = !data ? 'Buscando documentos…' : q ? 'Ningún documento coincide' : 'Sin documentos recientes';
+    list.append(p);
   }
-  box.append(list);
+  render();
+}
+
+// Mientras se escribe en el buscador la isla acepta teclado y no se pliega al salir el ratón.
+let typing = false;
+let mouseInside = false;
+function startTyping() {
+  if (typing) return;
+  typing = true;
+  api?.setFocusable(true);
+}
+function stopTyping() {
+  if (!typing) return;
+  typing = false;
+  api?.setFocusable(false);
+  if (!mouseInside) collapse();
+}
+function collapse() {
+  state.hover = false;
+  api?.setInteractive(false);
+  render();
+}
+
+// ---------- Proyectos ----------
+function onProjects(list) {
+  state.projects = list || [];
+  buildShelf();
 }
 
 function onFavorites(list) {
@@ -639,6 +729,8 @@ if (api) {
   api.onFavorites(onFavorites);
   api.getFavorites().then(onFavorites);
   api.onLibrary(onLibrary);
+  api.onProjects(onProjects);
+  api.getProjects().then(onProjects);
   api.getLibrary().then(onLibrary);
   api.onClaudeLink(onClaudeLink);
   api.getClaudeLink().then(onClaudeLink);
