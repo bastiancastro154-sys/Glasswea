@@ -1,5 +1,5 @@
-# Lista las apps de la Tienda de Windows (las que no tienen acceso directo .lnk en el menú Inicio),
-# con su icono en PNG. Devuelve un array JSON: [{ name, appId, icon }].
+# Lista todas las apps del menú Inicio (de escritorio y de la Tienda) con su nombre tal como lo muestra
+# Windows y su icono en PNG. Devuelve un array JSON: [{ name, appId, icon }].
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -72,7 +72,7 @@ public static class GlassIcons {
 } catch { }
 
 $list = @()
-foreach ($app in (Get-StartApps | Where-Object { $_.AppID -like '*!*' })) {
+foreach ($app in (Get-StartApps)) {
     $icon = $null
     if ($iconsOk) {
         try { $icon = [GlassIcons]::Get("shell:AppsFolder\" + $app.AppID, 48) } catch { }

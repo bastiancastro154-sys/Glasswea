@@ -201,8 +201,11 @@ function favoritesWithIcons() {
   return Promise.all(settings.favorites.map(async (f) => ({ ...f, icon: f.icon || (f.path ? await fileIcon(f.path) : null) })));
 }
 
-// Búsqueda de aplicaciones instaladas: accesos directos del menú Inicio + apps de la Tienda.
+// Búsqueda de aplicaciones instaladas. En Windows la lista sale del propio menú Inicio (nombres e
+// iconos como los muestra el sistema); si eso falla, se recurre a los accesos directos .lnk.
 let appsCache = null;
+const SKIP = /uninstall|desinstalar|readme|l[eé]eme|\bhelp\b|ayuda|documenta|website|sitio web|licen[sc]|release notes|manual|\bfaq\b/i;
+const NOT_AN_APP = /^https?:|\.(url|chm|txt|html?|pdf|rtf)$/i;
 function scanShortcuts() {
   const dirs = [];
   if (process.platform === 'win32') {
@@ -210,7 +213,6 @@ function scanShortcuts() {
     dirs.push(path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'));
   }
   if (process.env.GLASS_ISLAND_APP_DIRS) dirs.push(...process.env.GLASS_ISLAND_APP_DIRS.split(path.delimiter)); // para pruebas
-  const SKIP = /uninstall|desinstalar|readme|l[eé]eme|\bhelp\b|ayuda|documenta|website|sitio web|licen[sc]|release notes|manual|\bfaq\b/i;
   const found = new Map();
   const walk = (dir, depth) => {
     if (depth > 4) return;
@@ -235,7 +237,7 @@ function scanStoreApps() {
     const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', APPS_SCRIPT],
       { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     let out = '';
-    const timer = setTimeout(() => p.kill(), 25000);
+    const timer = setTimeout(() => p.kill(), 45000);
     p.stdout.setEncoding('utf8');
     p.stdout.on('data', (c) => { out += c; });
     p.on('error', () => { clearTimeout(timer); resolve([]); });
@@ -247,15 +249,14 @@ function scanStoreApps() {
 }
 async function listApps(force) {
   if (appsCache && !force) return appsCache;
-  const [shortcuts, store] = await Promise.all([
-    Promise.all(scanShortcuts().map(async (a) => ({ ...a, icon: await fileIcon(a.path) }))),
-    scanStoreApps(),
-  ]);
-  const names = new Set(shortcuts.map((a) => a.name.toLowerCase()));
-  const extra = store
-    .filter((s) => s && typeof s.name === 'string' && s.name && typeof s.appId === 'string' && !names.has(s.name.toLowerCase()))
+  const seen = new Set();
+  let list = (await scanStoreApps())
+    .filter((s) => s && typeof s.name === 'string' && s.name && typeof s.appId === 'string' && s.appId)
+    .filter((s) => !SKIP.test(s.name) && !NOT_AN_APP.test(s.appId))
+    .filter((s) => !seen.has(s.name.toLowerCase()) && seen.add(s.name.toLowerCase()))
     .map((s) => ({ name: s.name, appId: s.appId, icon: typeof s.icon === 'string' ? s.icon : null }));
-  appsCache = [...shortcuts, ...extra]
+  if (!list.length) list = await Promise.all(scanShortcuts().map(async (a) => ({ ...a, icon: await fileIcon(a.path) })));
+  appsCache = list
     .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
     .map((a, id) => ({ ...a, id }));
   return appsCache;
