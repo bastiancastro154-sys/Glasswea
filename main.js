@@ -8,7 +8,7 @@ const claudeHooks = require('./hooks');
 
 const HOOK_PORT = claudeHooks.PORT;
 const WIN_W = 480;
-const WIN_H = 400;
+const WIN_H = 480;
 const AUDIO_SCRIPT = path.join(__dirname, 'scripts', 'audio.ps1').replace('app.asar', 'app.asar.unpacked');
 const APPS_SCRIPT = path.join(__dirname, 'scripts', 'apps.ps1').replace('app.asar', 'app.asar.unpacked');
 const MAX_FAVORITES = 10;
@@ -19,13 +19,14 @@ const LOGIN = app.isPackaged ? {} : { path: process.execPath, args: [`"${app.get
 
 let win = null;
 const DEFAULTS = { blur: true, blurPx: 18, tint: 50, dark: 30, sheen: 60, colorMode: 'auto', color: '#7f8cff', focusMin: 25, breakMin: 5,
-  showVolume: true, showActions: true, showFavorites: true, showUsage: true };
-let settings = { ...DEFAULTS, favorites: [] };
+  showVolume: true, showActions: true, showFavorites: true, showUsage: true,
+  showGames: true, showLaunchers: true };
+let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], hiddenLibrary: [] };
 let settingsWin = null;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() {
   try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* primera vez */ }
-  if (!Array.isArray(settings.favorites)) settings.favorites = [];
+  for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
 }
 function saveSettings() { try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* sin permisos */ } }
 let tray = null;
@@ -298,11 +299,173 @@ ipcMain.on('favorites-remove', (_e, index) => {
   saveSettings();
   broadcastFavorites();
 });
+// Abre una entrada: enlace de un launcher (steam://…), app del menú Inicio o archivo.
+function launchEntry(e) {
+  if (e.url) shell.openExternal(e.url);
+  else if (e.appId) spawn('explorer.exe', [`shell:AppsFolder\\${e.appId}`], { detached: true, stdio: 'ignore' }).unref();
+  else if (e.path) shell.openPath(e.path);
+}
 ipcMain.on('favorite-open', (_e, index) => {
   const f = settings.favorites[index];
-  if (!f) return;
-  if (f.appId) spawn('explorer.exe', [`shell:AppsFolder\\${f.appId}`], { detached: true, stdio: 'ignore' }).unref();
-  else shell.openPath(f.path);
+  if (f) launchEntry(f);
+});
+
+// ---------- Juegos y launchers ----------
+// Juegos: se leen las bibliotecas de Steam y Epic Games. Launchers: se reconocen por nombre entre las apps
+// instaladas. En ambos casos se pueden añadir entradas a mano y ocultar las detectadas.
+const LAUNCHERS = /^(steam|epic games launcher|ea|ea app|ea desktop|origin|ubisoft connect|battle\.net|gog galaxy|riot client|xbox|rockstar games launcher|amazon games|itch|playnite|heroic games launcher|geforce now|nvidia geforce now|minecraft launcher|bethesda\.net launcher)$/i;
+const NOT_A_GAME = /steamworks|redistributable|proton|steam linux runtime|steamvr|soundtrack|dedicated server/i;
+let library = { games: [], launchers: [] };
+
+function regQuery(key, value) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve(null);
+    const p = spawn('reg.exe', ['query', key, '/v', value], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    p.stdout.on('data', (c) => { out += c; });
+    p.on('error', () => resolve(null));
+    p.on('exit', () => { const m = out.match(/REG_SZ\s+(.+)/); resolve(m ? m[1].trim() : null); });
+  });
+}
+const vdfValues = (text, key) => [...text.matchAll(new RegExp(`"${key}"\\s+"((?:[^"\\\\]|\\\\.)*)"`, 'gi'))].map((m) => m[1].replace(/\\\\/g, '\\'));
+
+function squareIcon(file) {
+  try {
+    let img = nativeImage.createFromPath(file);
+    if (img.isEmpty()) return null;
+    const { width, height } = img.getSize();
+    const side = Math.min(width, height);
+    if (width !== height) img = img.crop({ x: Math.round((width - side) / 2), y: Math.round((height - side) / 2), width: side, height: side });
+    return img.resize({ width: 64, height: 64, quality: 'best' }).toDataURL();
+  } catch { return null; }
+}
+function steamIcon(root, appid) {
+  const base = path.join(root, 'appcache', 'librarycache');
+  const candidates = [];
+  try { // formato nuevo: una carpeta por juego; el icono es el .jpg con nombre hexadecimal
+    const dir = path.join(base, appid);
+    const files = fs.readdirSync(dir);
+    candidates.push(...files.filter((f) => /^[0-9a-f]{40}\.jpg$/i.test(f)).map((f) => path.join(dir, f)));
+    candidates.push(path.join(dir, 'library_600x900.jpg'), path.join(dir, 'header.jpg'));
+  } catch { /* formato antiguo */ }
+  candidates.push(path.join(base, `${appid}_icon.jpg`), path.join(base, `${appid}_library_600x900.jpg`), path.join(base, `${appid}_header.jpg`));
+  for (const f of candidates) {
+    if (!fs.existsSync(f)) continue;
+    const icon = squareIcon(f);
+    if (icon) return icon;
+  }
+  return null;
+}
+async function scanSteam() {
+  let root = process.env.GLASS_ISLAND_STEAM_DIR || null; // para pruebas
+  if (!root && process.platform === 'win32') {
+    const fromReg = await regQuery('HKCU\\Software\\Valve\\Steam', 'SteamPath');
+    root = [fromReg, 'C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam'].find((p) => p && fs.existsSync(p)) || null;
+  }
+  if (!root) return [];
+  const libs = new Set([path.normalize(root)]);
+  try { vdfValues(fs.readFileSync(path.join(root, 'steamapps', 'libraryfolders.vdf'), 'utf8'), 'path').forEach((p) => libs.add(path.normalize(p))); } catch { /* una sola biblioteca */ }
+  const games = new Map();
+  for (const lib of libs) {
+    let files;
+    try { files = fs.readdirSync(path.join(lib, 'steamapps')); } catch { continue; }
+    for (const f of files) {
+      if (!/^appmanifest_\d+\.acf$/i.test(f)) continue;
+      try {
+        const text = fs.readFileSync(path.join(lib, 'steamapps', f), 'utf8');
+        const appid = vdfValues(text, 'appid')[0];
+        const name = vdfValues(text, 'name')[0];
+        if (!appid || !name || NOT_A_GAME.test(name) || games.has(appid)) continue;
+        games.set(appid, { id: `steam:${appid}`, name, source: 'Steam', icon: steamIcon(root, appid), launch: { url: `steam://rungameid/${appid}` } });
+      } catch { /* manifiesto ilegible */ }
+    }
+  }
+  return [...games.values()];
+}
+async function scanEpic() {
+  const dir = process.env.GLASS_ISLAND_EPIC_DIR
+    || (process.platform === 'win32' ? path.join(process.env.ProgramData || 'C:\\ProgramData', 'Epic', 'EpicGamesLauncher', 'Data', 'Manifests') : null);
+  if (!dir) return [];
+  let files;
+  try { files = fs.readdirSync(dir); } catch { return []; }
+  const games = [];
+  for (const f of files) {
+    if (!/\.item$/i.test(f)) continue;
+    try {
+      const m = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      if (!m.DisplayName || !m.AppName || m.bIsIncompleteInstall) continue;
+      if (Array.isArray(m.AppCategories) && !m.AppCategories.includes('games')) continue; // p. ej. Unreal Engine
+      const exe = m.InstallLocation && m.LaunchExecutable ? path.join(m.InstallLocation, m.LaunchExecutable) : null;
+      games.push({ id: `epic:${m.AppName}`, name: m.DisplayName, source: 'Epic Games', icon: exe ? await fileIcon(exe) : null,
+        launch: { url: `com.epicgames.launcher://apps/${encodeURIComponent(m.AppName)}?action=launch&silent=true` } });
+    } catch { /* manifiesto ilegible */ }
+  }
+  return games;
+}
+const manualEntries = (list, kind) => list.map((e) => ({
+  id: `manual:${kind}:${e.appId || e.path}`, name: e.name, source: 'Añadido a mano', icon: e.icon || null, manual: true,
+  launch: e.appId ? { appId: e.appId } : { path: e.path },
+}));
+const byName = (a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+function publicLibrary(all) {
+  const strip = (list) => list.filter((e) => all || !e.hidden).map(({ launch, ...rest }) => rest);
+  return { games: strip(library.games), launchers: strip(library.launchers) };
+}
+function broadcastLibrary() {
+  const hidden = new Set(settings.hiddenLibrary);
+  for (const e of [...library.games, ...library.launchers]) e.hidden = hidden.has(e.id);
+  send('library', publicLibrary(false));
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('library', publicLibrary(true));
+}
+let libraryScan = null;
+function refreshLibrary(force) {
+  if (libraryScan) return libraryScan;
+  libraryScan = (async () => {
+    const [steam, epic, apps] = await Promise.all([scanSteam().catch(() => []), scanEpic().catch(() => []), listApps(force).catch(() => [])]);
+    const detected = apps.filter((a) => LAUNCHERS.test(a.name.trim()))
+      .map((a) => ({ id: `app:${a.appId || a.path}`, name: a.name, source: '', icon: a.icon, launch: a.appId ? { appId: a.appId } : { path: a.path } }));
+    library = {
+      games: [...steam, ...epic, ...manualEntries(settings.extraGames, 'games')].sort(byName),
+      launchers: [...detected, ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName),
+    };
+    broadcastLibrary();
+  })().finally(() => { libraryScan = null; });
+  return libraryScan;
+}
+function rebuildManual() { // tras añadir o quitar a mano no hace falta volver a escanear
+  library.games = [...library.games.filter((e) => !e.manual), ...manualEntries(settings.extraGames, 'games')].sort(byName);
+  library.launchers = [...library.launchers.filter((e) => !e.manual), ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName);
+  saveSettings();
+  broadcastLibrary();
+}
+const extraKey = (kind) => (kind === 'games' ? 'extraGames' : kind === 'launchers' ? 'extraLaunchers' : null);
+ipcMain.handle('library-get', (e) => publicLibrary(!!settingsWin && !settingsWin.isDestroyed() && e.sender === settingsWin.webContents));
+ipcMain.handle('library-refresh', () => refreshLibrary(true));
+ipcMain.on('library-open', (_e, id) => {
+  const entry = [...library.games, ...library.launchers].find((x) => x.id === id);
+  if (entry) launchEntry(entry.launch);
+});
+ipcMain.on('library-hide', (_e, id, hide) => {
+  if (typeof id !== 'string') return;
+  settings.hiddenLibrary = settings.hiddenLibrary.filter((x) => x !== id);
+  if (hide) settings.hiddenLibrary.push(id);
+  saveSettings();
+  broadcastLibrary();
+});
+ipcMain.handle('library-add', async (_e, kind, appId) => {
+  const key = extraKey(kind);
+  const a = appsCache && appsCache[appId];
+  if (!key || !a) return;
+  if (settings[key].some((x) => (a.appId ? x.appId === a.appId : x.path === a.path))) return;
+  settings[key].push(a.appId ? { name: a.name, appId: a.appId, icon: a.icon } : { name: a.name, path: a.path, icon: a.icon });
+  rebuildManual();
+});
+ipcMain.on('library-remove', (_e, id) => {
+  const m = typeof id === 'string' && id.match(/^manual:(games|launchers):(.*)$/s);
+  if (!m) return;
+  const key = extraKey(m[1]);
+  settings[key] = settings[key].filter((x) => (x.appId || x.path) !== m[2]);
+  rebuildManual();
 });
 
 // ---------- Consumo del plan (lo envía la barra de estado de Claude Code) ----------
@@ -476,6 +639,7 @@ app.whenReady().then(() => {
   startHookServer();
   startAudio();
   startUpdater();
+  setTimeout(() => refreshLibrary(false), 4000); // en segundo plano, para no retrasar el arranque
 });
 app.on('before-quit', () => { app.isQuitting = true; if (mediaProc) mediaProc.kill(); if (audioProc) audioProc.kill(); });
 app.on('window-all-closed', () => { if (app.isQuitting) app.quit(); });

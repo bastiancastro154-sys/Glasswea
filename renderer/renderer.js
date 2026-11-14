@@ -31,6 +31,7 @@ const state = {
   updateNoteUntil: 0,
   updateVersion: '',
   favorites: [],
+  library: { games: [], launchers: [] },
 };
 
 const fmt = (s) => {
@@ -348,9 +349,8 @@ function applySettings(s) {
   $('actions').hidden = !s.showActions;
   $('vol-row').hidden = !s.showVolume && !s.showActions;
   $('vol-row').classList.toggle('no-volume', !s.showVolume);
-  $('favorites').hidden = !s.showFavorites;
   updateAccent();
-  render();
+  buildShelf();
 }
 $('btn-settings').onclick = () => api?.openSettings();
 $('claude').onclick = () => api?.openSettings('claude');
@@ -399,35 +399,82 @@ document.querySelectorAll('[data-action]').forEach((b) => {
 });
 
 // ---------- Apps favoritas ----------
-function onFavorites(list) {
-  state.favorites = list || [];
+const TABS = [
+  { id: 'apps', label: 'Apps', setting: 'showFavorites', empty: '＋ Agrega tus apps favoritas', section: undefined },
+  { id: 'games', label: 'Juegos', setting: 'showGames', empty: 'No se encontraron juegos · añadir', section: 'juegos' },
+  { id: 'launchers', label: 'Launchers', setting: 'showLaunchers', empty: 'No se encontraron launchers · añadir', section: 'juegos' },
+];
+let currentTab = 'apps';
+try { currentTab = localStorage.getItem('tab') || 'apps'; } catch { /* sin almacenamiento */ }
+
+function shelfItems(tab) {
+  if (tab === 'apps') return state.favorites.map((f, i) => ({ name: f.name, icon: f.icon, open: () => api?.openFavorite(i) }));
+  return (state.library[tab] || []).map((e) => ({
+    name: e.name, title: e.source ? `${e.name} · ${e.source}` : e.name, icon: e.icon, cover: tab === 'games', open: () => api?.openLibrary(e.id),
+  }));
+}
+// Reconstruye las pestañas y sus iconos. Solo se llama cuando cambian los datos, no en cada refresco.
+function buildShelf() {
+  const tabs = TABS.filter((t) => cfg[t.setting] !== false);
+  $('shelf').hidden = tabs.length === 0;
+  if (!tabs.length) return render();
+  if (!tabs.some((t) => t.id === currentTab)) currentTab = tabs[0].id;
+  const tab = tabs.find((t) => t.id === currentTab);
+
+  const bar = $('shelf-tabs');
+  bar.textContent = '';
+  bar.hidden = tabs.length < 2;
+  for (const t of tabs) {
+    const b = document.createElement('button');
+    b.textContent = t.label;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(t.id === currentTab));
+    b.onclick = () => {
+      currentTab = t.id;
+      try { localStorage.setItem('tab', t.id); } catch { /* sin almacenamiento */ }
+      buildShelf();
+    };
+    bar.append(b);
+  }
+
   const box = $('favorites');
   box.textContent = '';
-  if (!state.favorites.length) {
+  box.scrollTop = 0;
+  const items = shelfItems(tab.id);
+  if (!items.length) {
     const b = document.createElement('button');
     b.className = 'empty';
-    b.textContent = '＋ Agrega tus apps favoritas';
-    b.onclick = () => api?.openSettings();
+    b.textContent = tab.empty;
+    b.onclick = () => api?.openSettings(tab.section);
     box.append(b);
   }
-  state.favorites.forEach((f, i) => {
+  for (const it of items) {
     const b = document.createElement('button');
     b.className = 'fav';
-    b.title = f.name;
-    if (f.icon) {
+    b.title = it.title || it.name;
+    if (it.icon) {
       const img = document.createElement('img');
-      img.src = f.icon; img.alt = '';
+      img.src = it.icon; img.alt = '';
+      if (it.cover) img.className = 'cover';
       b.append(img);
     } else {
-      const s = document.createElement('span');
-      s.className = 'letter';
-      s.textContent = (f.name[0] || '?').toUpperCase();
-      b.append(s);
+      const sp = document.createElement('span');
+      sp.className = 'letter';
+      sp.textContent = (it.name[0] || '?').toUpperCase();
+      b.append(sp);
     }
-    b.onclick = () => api?.openFavorite(i);
+    b.onclick = it.open;
     box.append(b);
-  });
+  }
   render();
+}
+function onFavorites(list) {
+  state.favorites = list || [];
+  buildShelf();
+}
+function onLibrary(lib) {
+  state.library = { games: (lib && lib.games) || [], launchers: (lib && lib.launchers) || [] };
+  buildShelf();
 }
 
 // ---------- Desenfoque del escritorio ----------
@@ -508,6 +555,7 @@ const demo = {
     this.load();
     onAudio({ volume: 42, muted: false, micMuted: false });
     onFavorites([{ name: 'Navegador' }, { name: 'Código' }, { name: 'Música' }]);
+    onLibrary({ games: [{ id: 'a', name: 'Aventura', source: 'Steam' }, { id: 'b', name: 'Carreras', source: 'Epic Games' }], launchers: [{ id: 'c', name: 'Steam' }] });
     const steps = [
       { state: 'working', detail: 'Pensando…' }, { state: 'working', detail: 'Read' }, { state: 'working', detail: 'Edit' },
       { state: 'working', detail: 'Bash' }, { state: 'done', detail: 'Terminó' }, { state: 'idle', detail: '' }, { state: 'idle', detail: '' },
@@ -528,6 +576,8 @@ if (api) {
   api.getAudio().then(onAudio);
   api.onFavorites(onFavorites);
   api.getFavorites().then(onFavorites);
+  api.onLibrary(onLibrary);
+  api.getLibrary().then(onLibrary);
   api.onClaudeLink(onClaudeLink);
   api.getClaudeLink().then(onClaudeLink);
   api.onUsage((u) => { state.usage = u; render(); });

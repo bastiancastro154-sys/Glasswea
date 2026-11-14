@@ -1,7 +1,7 @@
 const api = window.islandAPI;
 const $ = (id) => document.getElementById(id);
 const UNITS = { tint: '%', dark: '%', sheen: '%', blurPx: ' px' };
-const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage'];
+const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage', 'showGames', 'showLaunchers'];
 
 function show(s) {
   for (const k of FIELDS) {
@@ -61,16 +61,17 @@ function showFavorites(list) {
 // ---------- Selector de aplicaciones instaladas ----------
 let favorites = [];
 let apps = null;
+let pickerTarget = 'favorites'; // 'favorites' | 'games' | 'launchers'
 const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 function renderApps() {
   if ($('picker').hidden || !apps) return;
   const q = norm($('app-search').value.trim());
-  const full = favorites.length >= 10;
+  const full = pickerTarget === 'favorites' && favorites.length >= 10;
   const box = $('app-list');
   box.textContent = '';
   const shown = apps.filter((a) => !q || norm(a.name).includes(q));
   for (const a of shown) {
-    const added = favorites.some((f) => (a.appId ? f.appId === a.appId : f.path === a.path));
+    const added = pickerTarget === 'favorites' && favorites.some((f) => (a.appId ? f.appId === a.appId : f.path === a.path));
     const b = document.createElement('button');
     let icon;
     if (a.icon) { icon = document.createElement('img'); icon.src = a.icon; icon.alt = ''; }
@@ -80,7 +81,11 @@ function renderApps() {
     b.append(icon, name);
     if (added) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'Añadida'; b.append(t); }
     b.disabled = added || full;
-    b.onclick = () => api.addFavoriteApp(a.id);
+    b.onclick = async () => {
+      if (pickerTarget === 'favorites') return api.addFavoriteApp(a.id);
+      await api.addLibrary(pickerTarget, a.id);
+      $('picker').hidden = true;
+    };
     box.append(b);
   }
   const status = $('app-status');
@@ -96,12 +101,52 @@ async function loadApps(force) {
   apps = await api.listApps(force);
   renderApps();
 }
-$('fav-add-app').onclick = () => {
+function openPicker(target) {
+  pickerTarget = target;
   $('picker').hidden = false;
   $('app-search').value = '';
   $('app-search').focus();
   if (apps) renderApps(); else loadApps(false);
+}
+$('fav-add-app').onclick = () => openPicker('favorites');
+$('lib-add-games').onclick = () => openPicker('games');
+$('lib-add-launchers').onclick = () => openPicker('launchers');
+
+// ---------- Juegos y launchers ----------
+function showLibraryList(boxId, list) {
+  const box = $(boxId);
+  box.textContent = '';
+  for (const e of list) {
+    const row = document.createElement('div');
+    row.className = 'fav' + (e.hidden ? ' off' : '');
+    let icon;
+    if (e.icon) { icon = document.createElement('img'); icon.src = e.icon; icon.alt = ''; }
+    else { icon = document.createElement('span'); icon.className = 'letter'; icon.textContent = (e.name[0] || '?').toUpperCase(); }
+    const name = document.createElement('span');
+    name.className = 'name'; name.textContent = e.name;
+    const src = document.createElement('span');
+    src.className = 'src'; src.textContent = e.source || '';
+    const btn = document.createElement('button');
+    if (e.manual) { btn.textContent = 'Quitar'; btn.onclick = () => api.removeLibrary(e.id); }
+    else { btn.textContent = e.hidden ? 'Mostrar' : 'Ocultar'; btn.onclick = () => api.hideLibrary(e.id, !e.hidden); }
+    row.append(icon, name, src, btn);
+    box.append(row);
+  }
+}
+function showLibrary(lib) {
+  showLibraryList('lib-games', lib.games || []);
+  showLibraryList('lib-launchers', lib.launchers || []);
+}
+$('lib-refresh').onclick = async () => {
+  $('lib-refresh').disabled = true;
+  $('lib-refresh').textContent = 'Buscando…';
+  apps = null;
+  await api.refreshLibrary();
+  $('lib-refresh').disabled = false;
+  $('lib-refresh').textContent = 'Volver a buscar';
 };
+api.onLibrary(showLibrary);
+api.getLibrary().then(showLibrary);
 $('app-close').onclick = () => { $('picker').hidden = true; };
 $('app-refresh').onclick = () => loadApps(true);
 $('app-search').addEventListener('input', renderApps);

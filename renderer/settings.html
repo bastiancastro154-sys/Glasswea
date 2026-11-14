@@ -31,6 +31,11 @@
   .fav .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fav button, .inline button { margin: 0; padding: 4px 10px; }
   .inline { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lib-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; max-height: 232px; overflow-y: auto; }
+  .lib-list:empty::after { content: 'Nada por ahora.'; color: #8d8ba0; padding: 4px 2px; }
+  .fav.off .name, .fav.off img, .fav.off .letter { opacity: .4; }
+  .fav img { border-radius: 5px; object-fit: cover; }
+  .fav .src { color: #8d8ba0; font-size: 11px; flex: none; }
   #picker { position: fixed; inset: 0; background: #16161d; display: flex; flex-direction: column; padding: 16px 20px; }
   #picker header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
   #picker header button { margin: 0; }
@@ -67,12 +72,23 @@
   <div class="row"><label for="showVolume">Volumen</label><input type="checkbox" id="showVolume"></div>
   <div class="row"><label for="showActions">Acciones rápidas</label><input type="checkbox" id="showActions"></div>
   <div class="row"><label for="showFavorites">Apps favoritas</label><input type="checkbox" id="showFavorites"></div>
+  <div class="row"><label for="showGames">Juegos</label><input type="checkbox" id="showGames"></div>
+  <div class="row"><label for="showLaunchers">Launchers</label><input type="checkbox" id="showLaunchers"></div>
   <div class="row"><label for="showUsage">Consumo del plan de Claude</label><input type="checkbox" id="showUsage"></div>
 
   <h2>Apps favoritas</h2>
   <div id="fav-list"></div>
   <div class="inline"><button id="fav-add-app">Añadir app…</button><button id="fav-add-file">Examinar…</button><button id="fav-add-folder">Añadir carpeta…</button></div>
   <p class="hint">Hasta 10. "Añadir app" busca las aplicaciones instaladas; "Examinar" permite elegir un archivo a mano.</p>
+
+  <h2 id="juegos">Juegos</h2>
+  <div class="lib-list" id="lib-games"></div>
+  <div class="inline"><button id="lib-add-games">Añadir juego…</button><button id="lib-refresh">Volver a buscar</button></div>
+  <p class="hint">Los juegos instalados de Steam y Epic Games se detectan solos. Los de otras tiendas puedes añadirlos a mano.</p>
+
+  <h2>Launchers</h2>
+  <div class="lib-list" id="lib-launchers"></div>
+  <div class="inline"><button id="lib-add-launchers">Añadir launcher…</button></div>
 
   <h2>Temporizador</h2>
   <div class="row"><label for="focusMin">Enfoque (minutos)</label><input type="number" id="focusMin" min="1" max="180"></div>

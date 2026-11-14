@@ -218,7 +218,16 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 #act-mic:disabled { opacity: .35; cursor: default; background: none; }
 
 /* ---------- Apps favoritas ---------- */
-#favorites { display: flex; flex-wrap: wrap; gap: 4px; }
+#shelf-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+#shelf-tabs button {
+  width: auto; height: 22px; padding: 0 10px; border-radius: 11px;
+  font: inherit; font-size: 11.5px; opacity: .65;
+}
+#shelf-tabs button[aria-selected="true"] { background: rgba(255, 255, 255, .18); opacity: 1; font-weight: 600; }
+#favorites { display: flex; flex-wrap: wrap; gap: 4px; max-height: 74px; overflow-y: auto; }
+#favorites::-webkit-scrollbar { width: 6px; }
+#favorites::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .3); border-radius: 3px; }
+#favorites .fav img.cover { width: 28px; height: 28px; border-radius: 7px; object-fit: cover; }
 #favorites .fav { width: 35px; height: 35px; border-radius: 10px; }
 #favorites .fav img { width: 24px; height: 24px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .4)); }
 #favorites .fav .letter {
