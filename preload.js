@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('islandAPI', {
   hideLibrary: (id, hide) => ipcRenderer.send('library-hide', id, hide),
   addLibrary: (kind, appId) => ipcRenderer.invoke('library-add', kind, appId),
   removeLibrary: (id) => ipcRenderer.send('library-remove', id),
+  getOfficeRecents: (kind) => ipcRenderer.invoke('office-recents', kind),
+  openOfficeRecent: (id) => ipcRenderer.send('office-open-recent', id),
   onFocusSection: (cb) => ipcRenderer.on('focus-section', (_e, s) => cb(s)),
   getClaudeLink: () => ipcRenderer.invoke('claude-link-status'),
   setClaudeLink: (link) => ipcRenderer.invoke('claude-link-set', link),

@@ -20,13 +20,13 @@ const LOGIN = app.isPackaged ? {} : { path: process.execPath, args: [`"${app.get
 let win = null;
 const DEFAULTS = { blur: true, blurPx: 18, tint: 50, dark: 30, sheen: 60, colorMode: 'auto', color: '#7f8cff', focusMin: 25, breakMin: 5,
   showVolume: true, showActions: true, showFavorites: true, showUsage: true,
-  showGames: true, showLaunchers: true };
-let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], hiddenLibrary: [] };
+  showGames: true, showLaunchers: true, showOffice: true };
+let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], extraOffice: [], hiddenLibrary: [] };
 let settingsWin = null;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() {
   try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* primera vez */ }
-  for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
+  for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'extraOffice', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
 }
 function saveSettings() { try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* sin permisos */ } }
 let tray = null;
@@ -315,7 +315,68 @@ ipcMain.on('favorite-open', (_e, index) => {
 // instaladas. En ambos casos se pueden añadir entradas a mano y ocultar las detectadas.
 const LAUNCHERS = /^(steam|epic games launcher|ea|ea app|ea desktop|origin|ubisoft connect|battle\.net|gog galaxy|riot client|xbox|rockstar games launcher|amazon games|itch|playnite|heroic games launcher|geforce now|nvidia geforce now|minecraft launcher|bethesda\.net launcher)$/i;
 const NOT_A_GAME = /steamworks|redistributable|proton|steam linux runtime|steamvr|soundtrack|dedicated server/i;
-let library = { games: [], launchers: [] };
+let library = { games: [], launchers: [], office: [] };
+
+// Office: cada app se reconoce por nombre y lleva asociadas las extensiones de sus documentos.
+const OFFICE_APPS = [
+  { kind: 'word', re: /^(microsoft )?word\b/i, ext: ['docx', 'doc', 'docm', 'dotx', 'rtf', 'odt'] },
+  { kind: 'excel', re: /^(microsoft )?excel\b/i, ext: ['xlsx', 'xls', 'xlsm', 'xlsb', 'csv', 'ods'] },
+  { kind: 'powerpoint', re: /^(microsoft )?powerpoint\b/i, ext: ['pptx', 'ppt', 'pptm', 'ppsx', 'pps', 'odp'] },
+  { kind: 'access', re: /^(microsoft )?access\b/i, ext: ['accdb', 'mdb'] },
+  { kind: 'publisher', re: /^(microsoft )?publisher\b/i, ext: ['pub'] },
+  { kind: 'visio', re: /^(microsoft )?visio\b/i, ext: ['vsdx', 'vsd'] },
+  { kind: 'project', re: /^(microsoft )?project\b/i, ext: ['mpp'] },
+  { kind: 'onenote', re: /^(microsoft )?onenote\b/i, ext: [] },
+  { kind: 'outlook', re: /^(microsoft )?outlook\b/i, ext: [] },
+];
+const officeKind = (name) => { const a = OFFICE_APPS.find((o) => o.re.test(name.trim())); return a ? a.kind : null; };
+
+// Documentos recientes: Windows y Office dejan un acceso directo por cada archivo abierto.
+const recentPaths = new Map();
+function officeRecents(kind) {
+  const app = OFFICE_APPS.find((o) => o.kind === kind);
+  if (!app || !app.ext.length) return [];
+  const dirs = process.env.GLASS_ISLAND_RECENT_DIRS ? process.env.GLASS_ISLAND_RECENT_DIRS.split(path.delimiter) // para pruebas
+    : process.platform === 'win32' ? [path.join(process.env.APPDATA || '', 'Microsoft', 'Office', 'Recent'), path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Recent')]
+    : [];
+  const found = new Map();
+  for (const dir of dirs) {
+    let files;
+    try { files = fs.readdirSync(dir); } catch { continue; }
+    for (const f of files) {
+      const m = f.match(/^(.+\.([a-z0-9]+))\.lnk$/i);
+      if (!m || !app.ext.includes(m[2].toLowerCase())) continue;
+      const full = path.join(dir, f);
+      let at;
+      try { at = fs.statSync(full).mtimeMs; } catch { continue; }
+      const key = m[1].toLowerCase();
+      if (!found.has(key) || found.get(key).at < at) found.set(key, { name: m[1], at, link: full });
+    }
+  }
+  const out = [];
+  for (const r of [...found.values()].sort((a, b) => b.at - a.at)) {
+    let where = '';
+    if (process.platform === 'win32') {
+      try { // se descartan los documentos locales que ya no existen
+        const target = shell.readShortcutLink(r.link).target;
+        if (target) {
+          if (!target.startsWith('\\\\') && !fs.existsSync(target)) continue;
+          where = path.dirname(target);
+        }
+      } catch { /* acceso directo ilegible: se intenta abrir igualmente */ }
+    }
+    const id = `${kind}:${r.name.toLowerCase()}`;
+    recentPaths.set(id, r.link);
+    out.push({ id, name: r.name, at: r.at, where });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+ipcMain.handle('office-recents', (_e, kind) => (typeof kind === 'string' ? officeRecents(kind) : []));
+ipcMain.on('office-open-recent', (_e, id) => {
+  const link = recentPaths.get(id);
+  if (link) shell.openPath(link);
+});
 
 function regQuery(key, value) {
   return new Promise((resolve) => {
@@ -409,11 +470,11 @@ const manualEntries = (list, kind) => list.map((e) => ({
 const byName = (a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
 function publicLibrary(all) {
   const strip = (list) => list.filter((e) => all || !e.hidden).map(({ launch, ...rest }) => rest);
-  return { games: strip(library.games), launchers: strip(library.launchers) };
+  return { games: strip(library.games), launchers: strip(library.launchers), office: strip(library.office) };
 }
 function broadcastLibrary() {
   const hidden = new Set(settings.hiddenLibrary);
-  for (const e of [...library.games, ...library.launchers]) e.hidden = hidden.has(e.id);
+  for (const e of [...library.games, ...library.launchers, ...library.office]) e.hidden = hidden.has(e.id);
   send('library', publicLibrary(false));
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('library', publicLibrary(true));
 }
@@ -424,9 +485,12 @@ function refreshLibrary(force) {
     const [steam, epic, apps] = await Promise.all([scanSteam().catch(() => []), scanEpic().catch(() => []), listApps(force).catch(() => [])]);
     const detected = apps.filter((a) => LAUNCHERS.test(a.name.trim()))
       .map((a) => ({ id: `app:${a.appId || a.path}`, name: a.name, source: '', icon: a.icon, launch: a.appId ? { appId: a.appId } : { path: a.path } }));
+    const officeApps = apps.filter((a) => officeKind(a.name))
+      .map((a) => ({ id: `app:${a.appId || a.path}`, name: a.name, source: '', kind: officeKind(a.name), icon: a.icon, launch: a.appId ? { appId: a.appId } : { path: a.path } }));
     library = {
       games: [...steam, ...epic, ...manualEntries(settings.extraGames, 'games')].sort(byName),
       launchers: [...detected, ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName),
+      office: [...officeApps, ...manualEntries(settings.extraOffice, 'office')].sort(byName),
     };
     broadcastLibrary();
   })().finally(() => { libraryScan = null; });
@@ -435,14 +499,15 @@ function refreshLibrary(force) {
 function rebuildManual() { // tras añadir o quitar a mano no hace falta volver a escanear
   library.games = [...library.games.filter((e) => !e.manual), ...manualEntries(settings.extraGames, 'games')].sort(byName);
   library.launchers = [...library.launchers.filter((e) => !e.manual), ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName);
+  library.office = [...library.office.filter((e) => !e.manual), ...manualEntries(settings.extraOffice, 'office')].sort(byName);
   saveSettings();
   broadcastLibrary();
 }
-const extraKey = (kind) => (kind === 'games' ? 'extraGames' : kind === 'launchers' ? 'extraLaunchers' : null);
+const extraKey = (kind) => ({ games: 'extraGames', launchers: 'extraLaunchers', office: 'extraOffice' }[kind] || null);
 ipcMain.handle('library-get', (e) => publicLibrary(!!settingsWin && !settingsWin.isDestroyed() && e.sender === settingsWin.webContents));
 ipcMain.handle('library-refresh', () => refreshLibrary(true));
 ipcMain.on('library-open', (_e, id) => {
-  const entry = [...library.games, ...library.launchers].find((x) => x.id === id);
+  const entry = [...library.games, ...library.launchers, ...library.office].find((x) => x.id === id);
   if (entry) launchEntry(entry.launch);
 });
 ipcMain.on('library-hide', (_e, id, hide) => {
@@ -461,7 +526,7 @@ ipcMain.handle('library-add', async (_e, kind, appId) => {
   rebuildManual();
 });
 ipcMain.on('library-remove', (_e, id) => {
-  const m = typeof id === 'string' && id.match(/^manual:(games|launchers):(.*)$/s);
+  const m = typeof id === 'string' && id.match(/^manual:(games|launchers|office):(.*)$/s);
   if (!m) return;
   const key = extraKey(m[1]);
   settings[key] = settings[key].filter((x) => (x.appId || x.path) !== m[2]);

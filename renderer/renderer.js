@@ -31,7 +31,7 @@ const state = {
   updateNoteUntil: 0,
   updateVersion: '',
   favorites: [],
-  library: { games: [], launchers: [] },
+  library: { games: [], launchers: [], office: [] },
 };
 
 const fmt = (s) => {
@@ -403,14 +403,19 @@ const TABS = [
   { id: 'apps', label: 'Apps', setting: 'showFavorites', empty: '＋ Agrega tus apps favoritas', section: undefined },
   { id: 'games', label: 'Juegos', setting: 'showGames', empty: 'No se encontraron juegos · añadir', section: 'juegos' },
   { id: 'launchers', label: 'Launchers', setting: 'showLaunchers', empty: 'No se encontraron launchers · añadir', section: 'juegos' },
+  { id: 'office', label: 'Office', setting: 'showOffice', empty: 'No se encontraron apps de Office · añadir', section: 'office' },
 ];
+const RECENTS_KINDS = new Set(['word', 'excel', 'powerpoint', 'access', 'publisher', 'visio', 'project']);
+let officeView = null; // app de Office cuyo desplegable de recientes está abierto
 let currentTab = 'apps';
 try { currentTab = localStorage.getItem('tab') || 'apps'; } catch { /* sin almacenamiento */ }
 
 function shelfItems(tab) {
   if (tab === 'apps') return state.favorites.map((f, i) => ({ name: f.name, icon: f.icon, open: () => api?.openFavorite(i) }));
   return (state.library[tab] || []).map((e) => ({
-    name: e.name, title: e.source ? `${e.name} · ${e.source}` : e.name, icon: e.icon, cover: tab === 'games', open: () => api?.openLibrary(e.id),
+    name: e.name, title: e.source ? `${e.name} · ${e.source}` : e.name, icon: e.icon, cover: tab === 'games',
+    // Las apps de Office con documentos (Word, Excel…) despliegan sus recientes en lugar de abrirse directamente.
+    open: () => (tab === 'office' && RECENTS_KINDS.has(e.kind) ? openRecents(e) : api?.openLibrary(e.id)),
   }));
 }
 // Reconstruye las pestañas y sus iconos. Solo se llama cuando cambian los datos, no en cada refresco.
@@ -430,6 +435,7 @@ function buildShelf() {
     b.setAttribute('role', 'tab');
     b.setAttribute('aria-selected', String(t.id === currentTab));
     b.onclick = () => {
+      officeView = null;
       currentTab = t.id;
       try { localStorage.setItem('tab', t.id); } catch { /* sin almacenamiento */ }
       buildShelf();
@@ -440,6 +446,8 @@ function buildShelf() {
   const box = $('favorites');
   box.textContent = '';
   box.scrollTop = 0;
+  box.classList.toggle('recents', !!officeView && tab.id === 'office');
+  if (officeView && tab.id === 'office') { buildRecents(box); return render(); }
   const items = shelfItems(tab.id);
   if (!items.length) {
     const b = document.createElement('button');
@@ -468,12 +476,66 @@ function buildShelf() {
   }
   render();
 }
+// ---------- Desplegable de documentos recientes de Office ----------
+function whenText(at) {
+  const d = new Date(at);
+  const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86400000);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (days <= 0) return `hoy ${time}`;
+  if (days === 1) return `ayer ${time}`;
+  if (days < 7) return `hace ${days} días`;
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+async function openRecents(entry) {
+  officeView = { entry, items: null };
+  buildShelf();
+  const items = api ? await api.getOfficeRecents(entry.kind) : [];
+  if (officeView && officeView.entry.id === entry.id) { officeView.items = items; buildShelf(); }
+}
+function buildRecents(box) {
+  const { entry, items } = officeView;
+  const head = document.createElement('div');
+  head.className = 'r-head';
+  const back = document.createElement('button');
+  back.className = 'r-back'; back.title = 'Volver'; back.textContent = '‹';
+  back.onclick = () => { officeView = null; buildShelf(); };
+  const name = document.createElement('span');
+  name.className = 'r-app'; name.textContent = entry.name;
+  const launch = document.createElement('button');
+  launch.className = 'r-launch'; launch.textContent = 'Abrir app';
+  launch.onclick = () => api?.openLibrary(entry.id);
+  head.append(back, name, launch);
+  box.append(head);
+
+  const list = document.createElement('div');
+  list.className = 'r-list';
+  if (!items || !items.length) {
+    const p = document.createElement('div');
+    p.className = 'r-empty';
+    p.textContent = items ? 'Sin documentos recientes' : 'Buscando documentos…';
+    list.append(p);
+  }
+  for (const it of items || []) {
+    const b = document.createElement('button');
+    b.className = 'r-item';
+    b.title = it.where ? `${it.name}\n${it.where}` : it.name;
+    const n = document.createElement('span');
+    n.className = 'r-name'; n.textContent = it.name;
+    const w = document.createElement('span');
+    w.className = 'r-when'; w.textContent = whenText(it.at);
+    b.append(n, w);
+    b.onclick = () => api?.openOfficeRecent(it.id);
+    list.append(b);
+  }
+  box.append(list);
+}
+
 function onFavorites(list) {
   state.favorites = list || [];
   buildShelf();
 }
 function onLibrary(lib) {
-  state.library = { games: (lib && lib.games) || [], launchers: (lib && lib.launchers) || [] };
+  state.library = { games: (lib && lib.games) || [], launchers: (lib && lib.launchers) || [], office: (lib && lib.office) || [] };
   buildShelf();
 }
 
