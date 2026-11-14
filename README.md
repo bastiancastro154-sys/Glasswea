@@ -9,6 +9,10 @@ a través de ella y toma el color de la carátula de lo que suena.
 - **Volumen**: deslizador, silencio e indicador al cambiarlo.
 - **Acciones rápidas**: recorte de pantalla, silenciar micrófono, bloquear equipo.
 - **Apps favoritas**: hasta 10 accesos directos, configurables.
+- **Juegos y launchers**: detecta los juegos de Steam y Epic Games y los launchers instalados.
+- **Office**: documentos recientes de cada app, con fijados y buscador.
+- **Proyectos**: abre de un clic un conjunto de archivos, carpetas, apps y webs.
+- **Consumo del plan de Claude**: límites de 5 horas y semanal, tomados de la barra de estado de Claude Code.
 
 Pasa el ratón por encima para expandirla. Fuera de la isla los clics atraviesan la ventana.
 
