@@ -235,3 +235,15 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 #claude { cursor: pointer; transition: background .15s ease; }
 #claude:hover { background: rgba(255, 255, 255, .17); }
 #claude:focus-visible { outline: 2px solid rgba(255, 255, 255, .7); outline-offset: 2px; }
+
+/* ---------- Consumo del plan de Claude ---------- */
+#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 0 4px; }
+#usage .u { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+#usage .u-label { opacity: .7; flex: none; }
+#usage .u-pct { flex: none; width: 32px; text-align: right; font-weight: 600; }
+#usage .u-bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .2); overflow: hidden; }
+#usage .u-bar i { display: block; height: 100%; width: 0; border-radius: 2px; background: #fff; transition: width .4s ease; }
+#usage .u.warn .u-bar i { background: #ffd166; }
+#usage .u.crit .u-bar i { background: #ff8a80; }
+#usage .u.crit .u-pct { color: #ffb4ab; }
+#usage .u.single { grid-column: 1 / -1; }

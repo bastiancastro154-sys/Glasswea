@@ -19,7 +19,7 @@ const LOGIN = app.isPackaged ? {} : { path: process.execPath, args: [`"${app.get
 
 let win = null;
 const DEFAULTS = { blur: true, blurPx: 18, tint: 50, dark: 30, sheen: 60, colorMode: 'auto', color: '#7f8cff', focusMin: 25, breakMin: 5,
-  showVolume: true, showActions: true, showFavorites: true };
+  showVolume: true, showActions: true, showFavorites: true, showUsage: true };
 let settings = { ...DEFAULTS, favorites: [] };
 let settingsWin = null;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
@@ -305,13 +305,50 @@ ipcMain.on('favorite-open', (_e, index) => {
   else shell.openPath(f.path);
 });
 
+// ---------- Consumo del plan (lo envía la barra de estado de Claude Code) ----------
+let usage = null;
+const usageFile = () => path.join(app.getPath('userData'), 'usage.json');
+function loadUsage() { try { usage = JSON.parse(fs.readFileSync(usageFile(), 'utf8')); } catch { usage = null; } }
+function readWindow(w) {
+  if (!w || !Number.isFinite(w.used_percentage)) return null;
+  return { pct: Math.max(0, w.used_percentage), resetsAt: Number.isFinite(w.resets_at) ? w.resets_at * 1000 : null };
+}
+// Recibe los datos de sesión de Claude Code y devuelve la línea que Claude Code mostrará en su barra de estado.
+function onStatusLine(d) {
+  const rl = d.rate_limits || {};
+  const next = {
+    fiveHour: readWindow(rl.five_hour), sevenDay: readWindow(rl.seven_day),
+    model: d.model && typeof d.model.display_name === 'string' ? d.model.display_name : '',
+    at: Date.now(),
+  };
+  // Al inicio de una sesión aún no llegan los límites: se conserva la última lectura.
+  if (!next.fiveHour && !next.sevenDay && usage) { next.fiveHour = usage.fiveHour; next.sevenDay = usage.sevenDay; next.at = usage.at; }
+  usage = next;
+  try { fs.writeFileSync(usageFile(), JSON.stringify(usage)); } catch { /* sin permisos */ }
+  send('usage', usage);
+  const parts = [];
+  if (next.model) parts.push(`[${next.model}]`);
+  const ctx = d.context_window && d.context_window.used_percentage;
+  if (Number.isFinite(ctx)) parts.push(`contexto ${Math.round(ctx)}%`);
+  if (rl.five_hour && Number.isFinite(rl.five_hour.used_percentage)) parts.push(`5 h ${Math.round(rl.five_hour.used_percentage)}%`);
+  if (rl.seven_day && Number.isFinite(rl.seven_day.used_percentage)) parts.push(`7 d ${Math.round(rl.seven_day.used_percentage)}%`);
+  return parts.join(' · ');
+}
+ipcMain.handle('usage-get', () => usage);
+
 // ---------- Claude Code (los hooks hacen POST aquí) ----------
 function startHookServer() {
   const server = http.createServer((req, res) => {
-    if (req.method !== 'POST' || req.url !== '/hook') { res.writeHead(404).end(); return; }
+    if (req.method !== 'POST' || (req.url !== '/hook' && req.url !== '/statusline')) { res.writeHead(404).end(); return; }
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
     req.on('end', () => {
+      if (req.url === '/statusline') {
+        let line = '';
+        try { line = onStatusLine(JSON.parse(body)); } catch { /* JSON incompleto */ }
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end(line);
+        return;
+      }
       res.writeHead(204).end();
       let ev;
       try { ev = JSON.parse(body); } catch { return; }
@@ -360,6 +397,7 @@ ipcMain.handle('claude-link-set', (_e, link) => {
   send('claude-link', result);
   return result;
 });
+ipcMain.handle('claude-usage-set', (_e, on) => claudeHooks.setUsage(!!on));
 ipcMain.handle('settings-get', () => ({ ...settings, openAtLogin: app.getLoginItemSettings(LOGIN).openAtLogin }));
 ipcMain.on('settings-set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return;
@@ -376,22 +414,40 @@ ipcMain.on('settings-set', (_e, patch) => {
 
 // ---------- Actualizaciones (solo en la versión instalada; las publica GitHub Releases) ----------
 let updateReady = null;
+let autoUpdater = null;
+// state: 'dev' (sin instalar) | 'idle' | 'checking' | 'none' | 'downloading' | 'ready' | 'error'
+let updateStatus = { state: app.isPackaged ? 'idle' : 'dev', current: app.getVersion() };
+function setUpdateStatus(patch) {
+  updateStatus = { current: app.getVersion(), ...patch };
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update-status', updateStatus);
+}
+function checkForUpdates() {
+  if (!autoUpdater || ['checking', 'downloading', 'ready'].includes(updateStatus.state)) return;
+  autoUpdater.checkForUpdates().catch(() => {});
+}
 function startUpdater() {
   if (!app.isPackaged) return;
-  let autoUpdater;
   try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
+  autoUpdater.on('checking-for-update', () => setUpdateStatus({ state: 'checking' }));
+  autoUpdater.on('update-not-available', () => setUpdateStatus({ state: 'none', checkedAt: Date.now() }));
+  autoUpdater.on('update-available', (info) => setUpdateStatus({ state: 'downloading', version: info.version, percent: 0 }));
+  autoUpdater.on('download-progress', (p) => setUpdateStatus({ state: 'downloading', version: updateStatus.version, percent: Math.round(p.percent) }));
   autoUpdater.on('error', (e) => {
+    setUpdateStatus({ state: 'error', message: String((e && e.message) || e).split('\n')[0].slice(0, 200) });
     try { fs.appendFileSync(path.join(app.getPath('userData'), 'update.log'), `${new Date().toISOString()} ${e && e.message}\n`); } catch { /* sin permisos */ }
   });
   autoUpdater.on('update-downloaded', (info) => {
     updateReady = { version: info.version, install: () => { app.isQuitting = true; autoUpdater.quitAndInstall(true, true); } };
+    setUpdateStatus({ state: 'ready', version: info.version });
     buildTrayMenu();
     send('update-ready', info.version);
   });
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  check();
-  setInterval(check, 6 * 60 * 60 * 1000);
+  checkForUpdates();
+  setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
 }
+ipcMain.handle('update-get', () => updateStatus);
+ipcMain.on('update-check', checkForUpdates);
+ipcMain.on('update-install', () => { if (updateReady) updateReady.install(); });
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png')).resize({ width: 16, height: 16 }));
@@ -406,12 +462,14 @@ function buildTrayMenu() {
     { label: 'Configuración…', click: () => openSettings() },
     { type: 'separator' },
     { label: `Versión ${app.getVersion()}`, enabled: false },
+    ...(app.isPackaged && !updateReady ? [{ label: 'Buscar actualizaciones', click: () => { checkForUpdates(); openSettings('sistema'); } }] : []),
     { label: 'Salir', click: () => { app.isQuitting = true; app.quit(); } },
   ]));
 }
 
 app.whenReady().then(() => {
   loadSettings();
+  loadUsage();
   createWindow();
   createTray();
   startMediaWatcher();

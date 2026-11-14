@@ -1,7 +1,7 @@
 const api = window.islandAPI;
 const $ = (id) => document.getElementById(id);
 const UNITS = { tint: '%', dark: '%', sheen: '%', blurPx: ' px' };
-const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites'];
+const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage'];
 
 function show(s) {
   for (const k of FIELDS) {
@@ -122,7 +122,42 @@ function showLink(s) {
   st.textContent = s.error ? s.error
     : s.linked ? 'Vinculado con Claude Code'
     : s.claudeFound ? 'Sin vincular' : 'Sin vincular · no se encontró Claude Code en este equipo';
+  const ub = $('usage-toggle');
+  ub.disabled = s.usage === 'foreign';
+  ub.textContent = s.usage === 'on' ? 'Desactivar' : 'Activar';
+  ub.dataset.on = s.usage === 'on' ? '1' : '';
+  $('usage-status').className = s.usage === 'on' ? 'ok' : s.usage === 'foreign' ? 'warn' : '';
+  $('usage-status').textContent = s.usage === 'on' ? 'Consumo del plan: activado'
+    : s.usage === 'foreign' ? 'Consumo del plan: ya tienes una barra de estado propia en Claude Code'
+    : 'Consumo del plan: desactivado';
 }
+$('usage-toggle').onclick = async () => {
+  $('usage-toggle').disabled = true;
+  showLink(await api.setClaudeUsage(!$('usage-toggle').dataset.on));
+};
+
+// ---------- Actualizaciones ----------
+function showUpdate(s) {
+  const st = $('update-status');
+  const btn = $('update-btn');
+  const text = {
+    dev: 'Versión de desarrollo: sin actualizaciones automáticas',
+    idle: '',
+    checking: 'Buscando actualizaciones…',
+    none: 'Tienes la última versión',
+    downloading: `Descargando la versión ${s.version}… ${s.percent || 0}%`,
+    ready: `Versión ${s.version} lista para instalar`,
+    error: `No se pudo comprobar: ${s.message || 'error desconocido'}`,
+  }[s.state] || '';
+  st.textContent = `Versión ${s.current}${text ? ' · ' + text : ''}`;
+  st.className = s.state === 'ready' ? 'ok' : s.state === 'error' ? 'warn' : '';
+  btn.textContent = s.state === 'ready' ? 'Reiniciar y actualizar' : 'Buscar actualizaciones';
+  btn.dataset.ready = s.state === 'ready' ? '1' : '';
+  btn.disabled = ['dev', 'checking', 'downloading'].includes(s.state);
+}
+$('update-btn').onclick = () => { if ($('update-btn').dataset.ready) api.installUpdate(); else api.checkUpdate(); };
+api.onUpdateStatus(showUpdate);
+api.getUpdate().then(showUpdate);
 $('link-toggle').onclick = async () => {
   $('link-toggle').disabled = true;
   showLink(await api.setClaudeLink(!$('link-toggle').dataset.linked));

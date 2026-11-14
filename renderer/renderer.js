@@ -27,6 +27,7 @@ const state = {
   audio: { volume: null, muted: false, micMuted: null },
   volFlashUntil: 0,
   claudeLinked: null,
+  usage: null,
   updateNoteUntil: 0,
   updateVersion: '',
   favorites: [],
@@ -186,6 +187,8 @@ function renderExpanded() {
   const tIcon = t.running ? ICONS.pause : ICONS.play;
   if ($('timer-toggle').dataset.k !== tIcon) { $('timer-toggle').innerHTML = tIcon; $('timer-toggle').dataset.k = tIcon; }
 
+  renderUsage();
+
   const a = state.audio;
   const hasVol = a.volume != null;
   const silent = a.muted || a.volume === 0;
@@ -199,6 +202,36 @@ function renderExpanded() {
   $('act-mic').classList.toggle('off', a.micMuted === true);
   $('act-mic').disabled = a.micMuted == null;
   $('act-mic').title = a.micMuted == null ? 'Sin micrófono' : a.micMuted ? 'Activar micrófono' : 'Silenciar micrófono';
+}
+// Consumo del plan: una ventana deja de mostrarse cuando pasa su hora de reinicio (el dato ya no vale).
+function untilText(ms) {
+  const min = Math.max(1, Math.round(ms / 60000));
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} h ${min % 60} min`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+function renderUsage() {
+  const u = state.usage;
+  const now = Date.now();
+  const rows = [['u-5h', u && u.fiveHour, 'Límite de 5 horas'], ['u-7d', u && u.sevenDay, 'Límite semanal']];
+  let shown = 0;
+  for (const [id, w, name] of rows) {
+    const el = $(id);
+    const ok = !!w && (!w.resetsAt || w.resetsAt > now);
+    el.hidden = !ok;
+    if (!ok) continue;
+    shown++;
+    const pct = Math.min(100, Math.round(w.pct));
+    el.querySelector('i').style.width = `${pct}%`;
+    el.querySelector('.u-pct').textContent = `${pct}%`;
+    el.classList.toggle('warn', pct >= 75 && pct < 90);
+    el.classList.toggle('crit', pct >= 90);
+    el.title = `${name}: ${pct}% usado` + (w.resetsAt ? ` · se reinicia en ${untilText(w.resetsAt - now)}` : '') + ` · leído hace ${untilText(now - u.at)}`;
+  }
+  $('u-5h').classList.toggle('single', shown === 1);
+  $('u-7d').classList.toggle('single', shown === 1);
+  $('usage').hidden = shown === 0 || cfg.showUsage === false;
 }
 function setIcon(id, svg) {
   if ($(id).dataset.k !== svg) { $(id).innerHTML = svg; $(id).dataset.k = svg; }
@@ -497,6 +530,8 @@ if (api) {
   api.getFavorites().then(onFavorites);
   api.onClaudeLink(onClaudeLink);
   api.getClaudeLink().then(onClaudeLink);
+  api.onUsage((u) => { state.usage = u; render(); });
+  api.getUsage().then((u) => { state.usage = u; render(); });
   setupBlur();
   trackBlur();
 } else {

@@ -9,6 +9,10 @@ const MARK = `127.0.0.1:${PORT}/hook`;
 const COMMAND = `curl -s -m 1 -X POST -H "Content-Type: application/json" --data-binary @- http://${MARK} || exit 0`;
 const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'SessionEnd'];
 const WITH_MATCHER = new Set(['PreToolUse', 'PostToolUse']);
+// Consumo del plan: Claude Code entrega esos datos a su "barra de estado". El comando se los reenvía a la
+// isla y muestra en Claude Code la línea de texto que la isla le devuelve.
+const SL_MARK = `127.0.0.1:${PORT}/statusline`;
+const SL_COMMAND = `${process.platform === 'win32' ? 'curl.exe' : 'curl'} -s -m 2 -X POST -H "Content-Type: application/json" --data-binary "@-" http://${SL_MARK}`;
 
 const claudeDir = () => path.join(os.homedir(), '.claude');
 const settingsFile = () => path.join(claudeDir(), 'settings.json');
@@ -28,9 +32,13 @@ function isOurs(group) {
 }
 
 function status() {
-  const result = { linked: false, claudeFound: fs.existsSync(claudeDir()), file: settingsFile(), error: null };
+  const result = { linked: false, usage: 'off', claudeFound: fs.existsSync(claudeDir()), file: settingsFile(), error: null };
   try {
-    const hooks = read().hooks || {};
+    const data = read();
+    const hooks = data.hooks || {};
+    const sl = data.statusLine;
+    // 'foreign': el usuario ya tiene su propia barra de estado; no se toca.
+    result.usage = !sl ? 'off' : String(sl.command || '').includes(SL_MARK) ? 'on' : 'foreign';
     result.linked = EVENTS.every((ev) => Array.isArray(hooks[ev]) && hooks[ev].some(isOurs));
   } catch (e) {
     result.error = `No se pudo leer ${settingsFile()}: ${e.message}`;
@@ -65,4 +73,23 @@ function set(link) {
   return status();
 }
 
-module.exports = { PORT, status, set };
+function setUsage(on) {
+  let settings;
+  try { settings = read(); } catch (e) { return { ...status(), error: `No se pudo leer ${settingsFile()}: ${e.message}` }; }
+  const sl = settings.statusLine;
+  const ours = sl && String(sl.command || '').includes(SL_MARK);
+  if (sl && !ours) return { ...status(), error: 'Ya tienes una barra de estado personalizada en Claude Code; no se modificó.' };
+  try {
+    const file = settingsFile();
+    if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak`);
+    if (on) settings.statusLine = { type: 'command', command: SL_COMMAND };
+    else delete settings.statusLine;
+    fs.mkdirSync(claudeDir(), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+  } catch (e) {
+    return { ...status(), error: `No se pudo escribir la configuración: ${e.message}` };
+  }
+  return status();
+}
+
+module.exports = { PORT, status, set, setUsage };

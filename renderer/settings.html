@@ -67,6 +67,7 @@
   <div class="row"><label for="showVolume">Volumen</label><input type="checkbox" id="showVolume"></div>
   <div class="row"><label for="showActions">Acciones rápidas</label><input type="checkbox" id="showActions"></div>
   <div class="row"><label for="showFavorites">Apps favoritas</label><input type="checkbox" id="showFavorites"></div>
+  <div class="row"><label for="showUsage">Consumo del plan de Claude</label><input type="checkbox" id="showUsage"></div>
 
   <h2>Apps favoritas</h2>
   <div id="fav-list"></div>
@@ -83,8 +84,15 @@
     para saber cuándo está trabajando, cuándo termina y cuándo te necesita. No se usa tu cuenta ni tu contraseña, y nada sale de tu PC.
     Afecta a las sesiones de Claude Code que abras después de vincular.</p>
 
-  <h2>Sistema</h2>
+  <div class="row"><span id="usage-status">Consumo del plan</span><button id="usage-toggle" style="margin:0" disabled>Activar</button></div>
+  <p class="hint">El consumo (límite de 5 horas y semanal) lo entrega Claude Code a su barra de estado. Al activarlo, Glass Island
+    se configura como barra de estado de Claude Code: verás una línea con el modelo y los porcentajes dentro de Claude Code, y los
+    mismos datos en la isla. Solo se actualiza mientras usas Claude Code, y requiere un plan Pro o Max.</p>
+
+  <h2 id="sistema">Sistema</h2>
   <div class="row"><label for="openAtLogin">Iniciar con Windows</label><input type="checkbox" id="openAtLogin"></div>
+
+  <div class="row"><span id="update-status">Versión</span><button id="update-btn" style="margin:0">Buscar actualizaciones</button></div>
 
   <button id="reset">Restablecer valores</button>
   <div id="picker" hidden>
