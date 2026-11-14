@@ -21,7 +21,10 @@ let cfg = { colorMode: 'auto', color: '#7f8cff' };
 
 const state = {
   hover: false,
-  music: { active: false, title: '', artist: '', playing: false, position: 0, duration: 0, thumb: null, at: Date.now() },
+  music: { active: false, id: '', title: '', artist: '', playing: false, position: 0, duration: 0, thumb: null, at: 0 },
+  sessions: [],
+  pickId: null,
+  autoId: null,
   claude: { state: 'off', detail: '', project: '', at: 0 },
   timer: { mode: 'focus', total: FOCUS, remaining: FOCUS, running: false, endAt: 0, finishedAt: 0 },
   audio: { volume: null, muted: false, micMuted: null },
@@ -163,7 +166,9 @@ function renderExpanded() {
   const { music: m, claude: c, timer: t } = state;
 
   $('title').textContent = m.active && m.title ? m.title : 'Nada sonando';
-  $('artist').textContent = m.active && m.title ? m.artist || '—' : 'Reproduce algo y aparecerá aquí';
+  const mApp = appName(m.source);
+  $('artist').textContent = m.active && m.title ? [m.artist, mApp].filter(Boolean).join(' · ') || '—' : 'Reproduce algo y aparecerá aquí';
+  renderOthers();
   const img = $('art-img');
   if (m.thumb) { if (img.getAttribute('src') !== m.thumb) img.src = m.thumb; } else img.removeAttribute('src');
   const pos = musicPosition();
@@ -284,31 +289,102 @@ $('timer-mode').onclick = () => {
   render();
 };
 
-// ---------- Música ----------
+// ---------- Música: varios reproductores a la vez ----------
+// Windows expone cada reproductor (Spotify, el navegador, etc.) como una sesión. La tarjeta grande muestra
+// una; las demás aparecen debajo con sus propios controles.
+const NO_MUSIC = { active: false, id: '', title: '', artist: '', playing: false, position: 0, duration: 0, thumb: null, at: 0 };
+const APP_NAMES = [[/spotify/i, 'Spotify'], [/chrome/i, 'Chrome'], [/msedge|edge/i, 'Edge'], [/firefox/i, 'Firefox'], [/brave/i, 'Brave'],
+  [/opera/i, 'Opera'], [/vlc/i, 'VLC'], [/zunemusic|mediaplayer/i, 'Reproductor multimedia'], [/itunes|applemusic/i, 'Apple Music'], [/youtube/i, 'YouTube'], [/comet/i, 'Comet']];
+function appName(source) {
+  if (!source) return '';
+  const known = APP_NAMES.find(([re]) => re.test(source));
+  if (known) return known[1];
+  const base = source.split('!').pop().split(/[\\/]/).pop().replace(/\.exe$/i, '').replace(/#\d+$/, '');
+  return base.length > 24 ? '' : base;
+}
 function onMedia(d) {
-  const m = state.music;
-  if (!d.active) {
-    Object.assign(m, { active: false, title: '', artist: '', playing: false, position: 0, duration: 0, thumb: null });
-  } else {
-    const changed = d.trackChanged || d.title !== m.title || d.artist !== m.artist;
-    Object.assign(m, { active: true, title: d.title, artist: d.artist, playing: d.playing, position: d.position, duration: d.duration, at: Date.now() });
-    if ('thumb' in d) m.thumb = d.thumb || null;
-    else if (changed) m.thumb = null;
-  }
+  // Formato antiguo (una sola sesión) convertido al nuevo, para la demo.
+  const incoming = d.sessions || (d.active ? [{ ...d, id: '_', source: '' }] : []);
+  const now = Date.now();
+  const prev = new Map(state.sessions.map((s) => [s.id, s]));
+  state.sessions = incoming.filter((s) => s.title || s.playing).map((s) => {
+    const old = prev.get(s.id);
+    const changed = s.trackChanged || !old || s.title !== old.title || s.artist !== old.artist;
+    const hold = old && now - old.localAt < 1500; // se acaba de pulsar play/pausa aquí: no pisar la respuesta inmediata
+    return {
+      active: true, id: s.id, source: s.source || '', title: s.title || '', artist: s.artist || '',
+      playing: hold ? old.playing : !!s.playing, position: s.position || 0, duration: s.duration || 0, at: now,
+      thumb: 'thumb' in s ? s.thumb || null : changed ? null : old.thumb, localAt: old ? old.localAt : 0,
+    };
+  });
+  selectSession(d.current);
   render();
   updateAccent();
 }
+// Elige qué reproductor ocupa la tarjeta grande: el que fijó el usuario; si no, se mantiene el que ya estaba
+// mientras siga sonando, y si no, el que esté sonando.
+function selectSession(current) {
+  const list = state.sessions;
+  let sel = list.find((s) => s.id === state.pickId);
+  if (!sel) {
+    state.pickId = null;
+    const before = list.find((s) => s.id === state.autoId);
+    sel = (before && before.playing ? before : null)
+      || list.find((s) => s.id === current && s.playing) || list.find((s) => s.playing)
+      || before || list.find((s) => s.id === current) || list[0];
+  }
+  state.autoId = sel ? sel.id : null;
+  state.music = sel || NO_MUSIC;
+}
+function mediaAction(session, action) {
+  if (action === 'toggle') { // respuesta inmediata; el observador confirma después
+    session.position = session.playing ? Math.min(session.position + (Date.now() - session.at) / 1000, session.duration || Infinity) : session.position;
+    session.at = session.localAt = Date.now();
+    session.playing = !session.playing;
+    render();
+  }
+  (api ? api.mediaControl : demo.mediaControl)(action, session.id);
+}
 document.querySelectorAll('[data-media]').forEach((b) => {
-  b.onclick = () => {
-    if (b.dataset.media === 'toggle') { // respuesta inmediata; el observador confirma después
-      state.music.position = musicPosition();
-      state.music.at = Date.now();
-      state.music.playing = !state.music.playing;
-      render();
-    }
-    (api ? api.mediaControl : demo.mediaControl)(b.dataset.media);
-  };
+  b.onclick = () => { if (state.music.active) mediaAction(state.music, b.dataset.media); };
 });
+
+let othersKey = '';
+function renderOthers() {
+  const others = state.sessions.filter((s) => s !== state.music).slice(0, 3);
+  const box = $('others');
+  box.hidden = others.length === 0;
+  const key = others.map((s) => `${s.id}|${s.title}|${s.artist}|${s.playing}|${s.thumb ? s.thumb.length : 0}`).join('\n');
+  if (key === othersKey) return; // solo se reconstruye cuando algo cambia
+  othersKey = key;
+  box.textContent = '';
+  for (const s of others) {
+    const row = document.createElement('div');
+    row.className = 'other';
+    const pick = document.createElement('button');
+    pick.className = 'o-pick';
+    pick.title = 'Mostrar este reproductor arriba';
+    const app = appName(s.source);
+    let icon;
+    if (s.thumb) { icon = document.createElement('img'); icon.src = s.thumb; icon.alt = ''; }
+    else { icon = document.createElement('span'); icon.className = 'letter'; icon.textContent = ((app || s.title)[0] || '?').toUpperCase(); }
+    const text = document.createElement('span');
+    text.className = 'o-text';
+    text.textContent = s.title || 'Sin título';
+    if (app) { const a = document.createElement('span'); a.className = 'o-app'; a.textContent = ` · ${app}`; text.append(a); }
+    pick.append(icon, text);
+    pick.onclick = () => { state.pickId = s.id; selectSession(); render(); updateAccent(); };
+    const mk = (title, svg, action) => {
+      const b = document.createElement('button');
+      b.className = 'o-btn'; b.title = title; b.innerHTML = svg;
+      b.onclick = () => mediaAction(s, action);
+      return b;
+    };
+    row.append(pick, mk(s.playing ? 'Pausar' : 'Reproducir', s.playing ? ICONS.pause : ICONS.play, 'toggle'),
+      mk('Siguiente', '<svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>', 'next'));
+    box.append(row);
+  }
+}
 
 // ---------- Claude Code ----------
 function onClaude(d) {

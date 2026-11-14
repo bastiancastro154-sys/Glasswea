@@ -111,7 +111,7 @@ function startMediaWatcher() {
       if (!line) continue;
       try {
         const d = JSON.parse(line);
-        if (d.thumbError) logMediaError(d.thumbError);
+        for (const s of d.sessions || []) if (s.thumbError) logMediaError(s.thumbError);
         send('media', d);
       } catch { /* línea incompleta */ }
     }
@@ -119,9 +119,12 @@ function startMediaWatcher() {
   mediaProc.on('exit', () => { mediaProc = null; if (!app.isQuitting) setTimeout(startMediaWatcher, 3000); });
 }
 
-ipcMain.on('media-control', (_e, action) => {
+ipcMain.on('media-control', (_e, action, target) => {
   if (process.platform !== 'win32') return;
-  if (['toggle', 'next', 'prev'].includes(action)) ps(['-Action', action]);
+  if (!['toggle', 'next', 'prev'].includes(action)) return;
+  const args = ['-Action', action];
+  if (typeof target === 'string' && target && target.length < 300) args.push('-Target', target); // reproductor concreto
+  ps(args);
 });
 
 // La isla no toma el foco del teclado salvo mientras se escribe en su buscador.

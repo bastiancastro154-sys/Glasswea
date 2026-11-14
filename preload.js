@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('islandAPI', {
   onMedia: (cb) => ipcRenderer.on('media', (_e, d) => cb(d)),
   onClaude: (cb) => ipcRenderer.on('claude', (_e, d) => cb(d)),
-  mediaControl: (action) => ipcRenderer.send('media-control', action),
+  mediaControl: (action, target) => ipcRenderer.send('media-control', action, target),
   getBlurConfig: () => ipcRenderer.invoke('blur-config'),
   onBlurChanged: (cb) => ipcRenderer.on('blur-changed', () => cb()),
   onAudio: (cb) => ipcRenderer.on('audio', (_e, d) => cb(d)),

@@ -297,3 +297,20 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 #favorites .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #favorites .chip-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: rgba(0, 0, 0, .28); font-size: 10.5px; display: grid; place-items: center; }
 #favorites .r-empty { padding: 6px 8px; opacity: .7; font-size: 12px; }
+
+/* ---------- Otros reproductores activos ---------- */
+#others { display: flex; flex-direction: column; gap: 4px; margin-top: -4px; }
+#others .other {
+  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 6px;
+  border-radius: 12px; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .1);
+}
+#others .o-pick {
+  flex: 1; min-width: 0; width: auto; height: 30px; border-radius: 10px; background: none; padding: 0;
+  display: flex; align-items: center; gap: 8px; font: inherit; text-align: left;
+}
+#others .o-pick img, #others .o-pick .letter { width: 22px; height: 22px; border-radius: 6px; flex: none; object-fit: cover; }
+#others .o-pick .letter { display: grid; place-items: center; background: rgba(255, 255, 255, .22); font-weight: 700; font-size: 11px; }
+#others .o-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+#others .o-app { opacity: .65; }
+#others .o-btn { width: 26px; height: 26px; flex: none; }
+#others .o-btn svg { width: 15px; height: 15px; }
