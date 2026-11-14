@@ -53,9 +53,60 @@ function showFavorites(list) {
     box.append(row);
   });
   const full = list.length >= 10;
-  $('fav-add-app').disabled = $('fav-add-folder').disabled = full;
+  $('fav-add-app').disabled = $('fav-add-file').disabled = $('fav-add-folder').disabled = full;
+  favorites = list;
+  renderApps();
 }
-$('fav-add-app').onclick = () => api.addFavorite('app');
+
+// ---------- Selector de aplicaciones instaladas ----------
+let favorites = [];
+let apps = null;
+const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function renderApps() {
+  if ($('picker').hidden || !apps) return;
+  const q = norm($('app-search').value.trim());
+  const full = favorites.length >= 10;
+  const box = $('app-list');
+  box.textContent = '';
+  const shown = apps.filter((a) => !q || norm(a.name).includes(q));
+  for (const a of shown) {
+    const added = favorites.some((f) => (a.appId ? f.appId === a.appId : f.path === a.path));
+    const b = document.createElement('button');
+    let icon;
+    if (a.icon) { icon = document.createElement('img'); icon.src = a.icon; icon.alt = ''; }
+    else { icon = document.createElement('span'); icon.className = 'letter'; icon.textContent = (a.name[0] || '?').toUpperCase(); }
+    const name = document.createElement('span');
+    name.className = 'name'; name.textContent = a.name;
+    b.append(icon, name);
+    if (added) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'Añadida'; b.append(t); }
+    b.disabled = added || full;
+    b.onclick = () => api.addFavoriteApp(a.id);
+    box.append(b);
+  }
+  const status = $('app-status');
+  status.hidden = shown.length > 0 && !full;
+  status.textContent = full ? 'Ya tienes 10 favoritas: quita alguna para añadir más.'
+    : apps.length ? 'Ninguna aplicación coincide con la búsqueda.' : 'No se encontraron aplicaciones. Usa "Examinar…" para elegir una a mano.';
+}
+async function loadApps(force) {
+  apps = null;
+  $('app-list').textContent = '';
+  $('app-status').hidden = false;
+  $('app-status').textContent = 'Buscando aplicaciones instaladas…';
+  apps = await api.listApps(force);
+  renderApps();
+}
+$('fav-add-app').onclick = () => {
+  $('picker').hidden = false;
+  $('app-search').value = '';
+  $('app-search').focus();
+  if (apps) renderApps(); else loadApps(false);
+};
+$('app-close').onclick = () => { $('picker').hidden = true; };
+$('app-refresh').onclick = () => loadApps(true);
+$('app-search').addEventListener('input', renderApps);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('picker').hidden = true; });
+$('fav-add-file').onclick = () => api.addFavorite('app');
 $('fav-add-folder').onclick = () => api.addFavorite('folder');
 api.onFavorites(showFavorites);
 api.getFavorites().then(showFavorites);

@@ -9,6 +9,7 @@ const HOOK_PORT = 47821;
 const WIN_W = 480;
 const WIN_H = 400;
 const AUDIO_SCRIPT = path.join(__dirname, 'scripts', 'audio.ps1').replace('app.asar', 'app.asar.unpacked');
+const APPS_SCRIPT = path.join(__dirname, 'scripts', 'apps.ps1').replace('app.asar', 'app.asar.unpacked');
 const MAX_FAVORITES = 10;
 const MEDIA_SCRIPT = path.join(__dirname, 'scripts', 'media.ps1').replace('app.asar', 'app.asar.unpacked');
 
@@ -187,16 +188,87 @@ ipcMain.on('quick-action', (_e, name) => {
 
 // ---------- Apps favoritas ----------
 const iconCache = new Map();
-async function favoritesWithIcons() {
-  return Promise.all(settings.favorites.map(async (f) => {
-    if (!iconCache.has(f.path)) {
-      let icon = null;
-      try { icon = (await app.getFileIcon(f.path, { size: 'large' })).toDataURL(); } catch { /* sin icono: se muestra la inicial */ }
-      iconCache.set(f.path, icon);
-    }
-    return { ...f, icon: iconCache.get(f.path) };
-  }));
+async function fileIcon(p) {
+  if (!iconCache.has(p)) {
+    let icon = null;
+    try { icon = (await app.getFileIcon(p, { size: 'large' })).toDataURL(); } catch { /* sin icono: se muestra la inicial */ }
+    iconCache.set(p, icon);
+  }
+  return iconCache.get(p);
 }
+function favoritesWithIcons() {
+  // Las apps de la Tienda guardan su icono al añadirse; el resto se lee del archivo.
+  return Promise.all(settings.favorites.map(async (f) => ({ ...f, icon: f.icon || (f.path ? await fileIcon(f.path) : null) })));
+}
+
+// Búsqueda de aplicaciones instaladas: accesos directos del menú Inicio + apps de la Tienda.
+let appsCache = null;
+function scanShortcuts() {
+  const dirs = [];
+  if (process.platform === 'win32') {
+    dirs.push(path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs'));
+    dirs.push(path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'));
+  }
+  if (process.env.GLASS_ISLAND_APP_DIRS) dirs.push(...process.env.GLASS_ISLAND_APP_DIRS.split(path.delimiter)); // para pruebas
+  const SKIP = /uninstall|desinstalar|readme|l[eé]eme|\bhelp\b|ayuda|documenta|website|sitio web|licen[sc]|release notes|manual|\bfaq\b/i;
+  const found = new Map();
+  const walk = (dir, depth) => {
+    if (depth > 4) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full, depth + 1);
+      else if (/\.lnk$/i.test(e.name)) {
+        const name = e.name.slice(0, -4);
+        if (SKIP.test(name)) continue;
+        if (!found.has(name.toLowerCase())) found.set(name.toLowerCase(), { name, path: full });
+      }
+    }
+  };
+  dirs.forEach((d) => walk(d, 0));
+  return [...found.values()];
+}
+function scanStoreApps() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve([]);
+    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', APPS_SCRIPT],
+      { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    const timer = setTimeout(() => p.kill(), 25000);
+    p.stdout.setEncoding('utf8');
+    p.stdout.on('data', (c) => { out += c; });
+    p.on('error', () => { clearTimeout(timer); resolve([]); });
+    p.on('exit', () => {
+      clearTimeout(timer);
+      try { const list = JSON.parse(out); resolve(Array.isArray(list) ? list : []); } catch { resolve([]); }
+    });
+  });
+}
+async function listApps(force) {
+  if (appsCache && !force) return appsCache;
+  const [shortcuts, store] = await Promise.all([
+    Promise.all(scanShortcuts().map(async (a) => ({ ...a, icon: await fileIcon(a.path) }))),
+    scanStoreApps(),
+  ]);
+  const names = new Set(shortcuts.map((a) => a.name.toLowerCase()));
+  const extra = store
+    .filter((s) => s && typeof s.name === 'string' && s.name && typeof s.appId === 'string' && !names.has(s.name.toLowerCase()))
+    .map((s) => ({ name: s.name, appId: s.appId, icon: typeof s.icon === 'string' ? s.icon : null }));
+  appsCache = [...shortcuts, ...extra]
+    .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+    .map((a, id) => ({ ...a, id }));
+  return appsCache;
+}
+ipcMain.handle('apps-list', (_e, force) => listApps(!!force));
+ipcMain.handle('favorites-add-app', async (_e, id) => {
+  const a = appsCache && appsCache[id];
+  if (!a || settings.favorites.length >= MAX_FAVORITES) return;
+  if (settings.favorites.some((f) => (a.appId ? f.appId === a.appId : f.path === a.path))) return;
+  settings.favorites.push(a.appId ? { name: a.name, appId: a.appId, icon: a.icon } : { name: a.name, path: a.path });
+  saveSettings();
+  await broadcastFavorites();
+});
 async function broadcastFavorites() {
   const list = await favoritesWithIcons();
   send('favorites', list);
@@ -226,7 +298,9 @@ ipcMain.on('favorites-remove', (_e, index) => {
 });
 ipcMain.on('favorite-open', (_e, index) => {
   const f = settings.favorites[index];
-  if (f) shell.openPath(f.path);
+  if (!f) return;
+  if (f.appId) spawn('explorer.exe', [`shell:AppsFolder\\${f.appId}`], { detached: true, stdio: 'ignore' }).unref();
+  else shell.openPath(f.path);
 });
 
 // ---------- Claude Code (los hooks hacen POST aquí) ----------

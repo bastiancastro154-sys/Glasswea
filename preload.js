@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('islandAPI', {
   quickAction: (name) => ipcRenderer.send('quick-action', name),
   onFavorites: (cb) => ipcRenderer.on('favorites', (_e, list) => cb(list)),
   getFavorites: () => ipcRenderer.invoke('favorites-get'),
+  listApps: (force) => ipcRenderer.invoke('apps-list', force),
+  addFavoriteApp: (id) => ipcRenderer.invoke('favorites-add-app', id),
   addFavorite: (kind) => ipcRenderer.invoke('favorites-add', kind),
   removeFavorite: (index) => ipcRenderer.send('favorites-remove', index),
   openFavorite: (index) => ipcRenderer.send('favorite-open', index),

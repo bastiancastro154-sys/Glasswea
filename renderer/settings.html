@@ -28,7 +28,21 @@
   .fav .letter { display: grid; place-items: center; border-radius: 6px; background: #34333f; font-weight: 700; font-size: 11px; }
   .fav .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fav button, .inline button { margin: 0; padding: 4px 10px; }
-  .inline { display: flex; gap: 8px; }
+  .inline { display: flex; gap: 8px; flex-wrap: wrap; }
+  #picker { position: fixed; inset: 0; background: #16161d; display: flex; flex-direction: column; padding: 16px 20px; }
+  #picker header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  #picker header button { margin: 0; }
+  #app-search { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid #34333f; background: #1f1f29; color: inherit; font: inherit; }
+  #app-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  #app-list button { margin: 0; display: flex; align-items: center; gap: 10px; text-align: left; border-color: transparent; background: none; padding: 6px 8px; }
+  #app-list button:hover:not(:disabled) { background: #2a2a37; }
+  #app-list button:disabled { opacity: .45; cursor: default; }
+  #app-list img, #app-list .letter { width: 24px; height: 24px; flex: none; }
+  #app-list .letter { display: grid; place-items: center; border-radius: 6px; background: #34333f; font-weight: 700; font-size: 11px; }
+  #app-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #app-list .tag { color: #8d8ba0; font-size: 11px; }
+  #app-status { color: #8d8ba0; padding: 12px 4px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -54,8 +68,8 @@
 
   <h2>Apps favoritas</h2>
   <div id="fav-list"></div>
-  <div class="inline"><button id="fav-add-app">Añadir app…</button><button id="fav-add-folder">Añadir carpeta…</button></div>
-  <p class="hint">Hasta 10. Puedes elegir un .exe o un acceso directo del menú Inicio.</p>
+  <div class="inline"><button id="fav-add-app">Añadir app…</button><button id="fav-add-file">Examinar…</button><button id="fav-add-folder">Añadir carpeta…</button></div>
+  <p class="hint">Hasta 10. "Añadir app" busca las aplicaciones instaladas; "Examinar" permite elegir un archivo a mano.</p>
 
   <h2>Temporizador</h2>
   <div class="row"><label for="focusMin">Enfoque (minutos)</label><input type="number" id="focusMin" min="1" max="180"></div>
@@ -65,6 +79,15 @@
   <div class="row"><label for="openAtLogin">Iniciar con Windows</label><input type="checkbox" id="openAtLogin"></div>
 
   <button id="reset">Restablecer valores</button>
+  <div id="picker" hidden>
+    <header>
+      <input type="search" id="app-search" placeholder="Buscar aplicación…" aria-label="Buscar aplicación">
+      <button id="app-refresh" title="Volver a buscar">Actualizar</button>
+      <button id="app-close">Cerrar</button>
+    </header>
+    <div id="app-status" hidden></div>
+    <div id="app-list"></div>
+  </div>
   <script src="settings.js"></script>
 </body>
 </html>
