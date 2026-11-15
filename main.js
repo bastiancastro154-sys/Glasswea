@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, desktopCapturer, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, desktopCapturer, shell, dialog, Notification } = require('electron');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
@@ -8,7 +8,7 @@ const claudeHooks = require('./hooks');
 
 const HOOK_PORT = claudeHooks.PORT;
 const WIN_W = 940; // deja sitio al panel lateral que se despliega a la derecha
-const WIN_H = 480;
+const WIN_H = 580;
 const AUDIO_SCRIPT = path.join(__dirname, 'scripts', 'audio.ps1').replace('app.asar', 'app.asar.unpacked');
 const APPS_SCRIPT = path.join(__dirname, 'scripts', 'apps.ps1').replace('app.asar', 'app.asar.unpacked');
 const MAX_FAVORITES = 10;
@@ -20,13 +20,14 @@ const LOGIN = app.isPackaged ? {} : { path: process.execPath, args: [`"${app.get
 let win = null;
 const DEFAULTS = { blur: true, blurPx: 18, tint: 50, dark: 30, sheen: 60, colorMode: 'auto', color: '#7f8cff', focusMin: 25, breakMin: 5,
   showVolume: true, showActions: true, showFavorites: true, showUsage: true,
-  showGames: true, showLaunchers: true, showOffice: true, showProjects: true };
-let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], extraOffice: [], hiddenLibrary: [] };
+  showGames: true, showLaunchers: true, showOffice: true, showProjects: true,
+  showTools: true, showClaude: false };
+let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], extraOffice: [], extraTools: [], hiddenLibrary: [] };
 let settingsWin = null;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() {
   try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* primera vez */ }
-  for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'extraOffice', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
+  for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'extraOffice', 'extraTools', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
 }
 function saveSettings() { try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* sin permisos */ } }
 let tray = null;
@@ -326,7 +327,42 @@ ipcMain.on('favorite-open', (_e, index) => {
 // instaladas. En ambos casos se pueden añadir entradas a mano y ocultar las detectadas.
 const LAUNCHERS = /^(steam|epic games launcher|ea|ea app|ea desktop|origin|ubisoft connect|battle\.net|gog galaxy|riot client|xbox|rockstar games launcher|amazon games|itch|playnite|heroic games launcher|geforce now|nvidia geforce now|minecraft launcher|bethesda\.net launcher)$/i;
 const NOT_A_GAME = /steamworks|redistributable|proton|steam linux runtime|steamvr|soundtrack|dedicated server/i;
-let library = { games: [], launchers: [], office: [] };
+let library = { games: [], launchers: [], office: [], tools: [] };
+
+// Utilidades: herramientas de Windows y navegadores. Se buscan por nombre entre las apps instaladas (para usar su
+// icono real); las del sistema que no aparezcan ahí se lanzan por su ejecutable.
+const TOOLS = [
+  { label: 'Calculadora', re: /^(calculadora|calculator)$/i, exe: 'calc.exe' },
+  { label: 'Bloc de notas', re: /^(bloc de notas|notepad)$/i, exe: 'notepad.exe' },
+  { label: 'Explorador de archivos', re: /^(explorador de archivos|file explorer)$/i, exe: 'explorer.exe', root: true },
+  { label: 'Recortes', re: /^(recortes|herramienta recortes|snipping tool)$/i, exe: 'SnippingTool.exe' },
+  { label: 'Lupa', re: /^(lupa|magnifier)$/i, exe: 'magnify.exe' },
+  { label: 'Paint', re: /^paint$/i, exe: 'mspaint.exe' },
+  { label: 'Terminal', re: /^(terminal|windows terminal)$/i, exe: 'WindowsPowerShell\\v1.0\\powershell.exe' },
+  { label: 'Administrador de tareas', re: /^(administrador de tareas|task manager)$/i, exe: 'Taskmgr.exe' },
+  { label: 'Configuración', re: /^(configuración|settings)$/i, url: 'ms-settings:' },
+  { label: 'Teclado en pantalla', re: /^(teclado en pantalla|on-screen keyboard)$/i, exe: 'osk.exe' },
+  { label: 'Grabadora de sonido', re: /^(grabadora de sonido|grabadora de voz|sound recorder|voice recorder)$/i },
+  { label: 'Reloj', re: /^(reloj|clock|alarmas y reloj|alarms & clock)$/i },
+];
+const BROWSERS = /^(google chrome|chrome|microsoft edge|edge|firefox|mozilla firefox|brave|brave browser|opera|opera gx|opera gx browser|navegador opera|vivaldi|comet|arc|duckduckgo|tor browser)$/i;
+async function scanTools(apps) {
+  const out = [];
+  const sys32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+  for (const t of TOOLS) {
+    const a = apps.find((x) => t.re.test(x.name.trim()));
+    if (a) { out.push({ id: `app:${a.appId || a.path}`, name: a.name, source: 'Sistema', icon: a.icon, launch: a.appId ? { appId: a.appId } : { path: a.path } }); continue; }
+    if (process.platform !== 'win32') continue;
+    if (t.url) { out.push({ id: `tool:${t.label}`, name: t.label, source: 'Sistema', icon: null, launch: { url: t.url } }); continue; }
+    if (!t.exe) continue;
+    const exe = t.root ? path.join(process.env.SystemRoot || 'C:\\Windows', t.exe) : path.join(sys32, t.exe);
+    if (fs.existsSync(exe)) out.push({ id: `tool:${t.label}`, name: t.label, source: 'Sistema', icon: await fileIcon(exe), launch: { path: exe } });
+  }
+  for (const a of apps.filter((x) => BROWSERS.test(x.name.trim()))) {
+    out.push({ id: `app:${a.appId || a.path}`, name: a.name, source: 'Navegador', icon: a.icon, launch: a.appId ? { appId: a.appId } : { path: a.path } });
+  }
+  return out;
+}
 
 // Office: cada app se reconoce por nombre y lleva asociadas las extensiones de sus documentos.
 const OFFICE_APPS = [
@@ -438,6 +474,58 @@ ipcMain.handle('office-unpin', (_e, kind, index) => {
 ipcMain.on('office-open-pin', (_e, kind, index) => {
   const p = officePins(kind)[index];
   if (p) shell.openPath(p.path);
+});
+
+// ---------- Agenda: eventos, recordatorios y notas rápidas ----------
+let agenda = { events: [], notes: '' };
+const agendaFile = () => path.join(app.getPath('userData'), 'agenda.json');
+function loadAgenda() {
+  try {
+    const d = JSON.parse(fs.readFileSync(agendaFile(), 'utf8'));
+    agenda = { events: Array.isArray(d.events) ? d.events : [], notes: typeof d.notes === 'string' ? d.notes : '' };
+  } catch { /* primera vez */ }
+}
+function saveAgenda() { try { fs.writeFileSync(agendaFile(), JSON.stringify(agenda)); } catch { /* sin permisos */ } }
+const dueTime = (e) => new Date(`${e.date}T${e.time || '09:00'}:00`).getTime(); // sin hora, el recordatorio avisa a las 9:00
+function checkReminders() {
+  const now = Date.now();
+  let changed = false;
+  for (const e of agenda.events) {
+    if (e.type !== 'reminder' || e.notified) continue;
+    const due = dueTime(e);
+    if (!(due <= now)) continue;
+    e.notified = true;
+    changed = true;
+    if (now - due > 12 * 3600 * 1000) continue; // demasiado antiguo (la isla estuvo cerrada): no se avisa
+    send('reminder', { text: e.text, time: e.time });
+    try { if (Notification.isSupported()) new Notification({ title: 'Recordatorio', body: e.text }).show(); } catch { /* sin notificaciones */ }
+  }
+  if (changed) { saveAgenda(); send('agenda', agenda); }
+}
+ipcMain.handle('agenda-get', () => agenda);
+ipcMain.handle('agenda-add', (_e, item) => {
+  if (!item || typeof item !== 'object' || agenda.events.length >= 1000) return agenda;
+  const text = typeof item.text === 'string' ? item.text.trim().slice(0, 120) : '';
+  const okDate = typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date);
+  const time = typeof item.time === 'string' && /^\d{2}:\d{2}$/.test(item.time) ? item.time : '';
+  if (!text || !okDate) return agenda;
+  const ev = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, date: item.date, time, text, type: item.type === 'reminder' ? 'reminder' : 'event' };
+  if (ev.type === 'reminder' && dueTime(ev) <= Date.now()) ev.notified = true; // creado ya en el pasado: no avisar
+  agenda.events.push(ev);
+  saveAgenda();
+  return agenda;
+});
+ipcMain.handle('agenda-remove', (_e, id) => {
+  agenda.events = agenda.events.filter((e) => e.id !== id);
+  saveAgenda();
+  return agenda;
+});
+let notesTimer = null;
+ipcMain.on('notes-set', (_e, text) => {
+  if (typeof text !== 'string') return;
+  agenda.notes = text.slice(0, 20000);
+  clearTimeout(notesTimer);
+  notesTimer = setTimeout(saveAgenda, 600);
 });
 
 // ---------- Proyectos: conjuntos de archivos, carpetas, apps y webs que se abren de una vez ----------
@@ -601,11 +689,11 @@ const manualEntries = (list, kind) => list.map((e) => ({
 const byName = (a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
 function publicLibrary(all) {
   const strip = (list) => list.filter((e) => all || !e.hidden).map(({ launch, ...rest }) => rest);
-  return { games: strip(library.games), launchers: strip(library.launchers), office: strip(library.office) };
+  return { games: strip(library.games), launchers: strip(library.launchers), office: strip(library.office), tools: strip(library.tools) };
 }
 function broadcastLibrary() {
   const hidden = new Set(settings.hiddenLibrary);
-  for (const e of [...library.games, ...library.launchers, ...library.office]) e.hidden = hidden.has(e.id);
+  for (const e of [...library.games, ...library.launchers, ...library.office, ...library.tools]) e.hidden = hidden.has(e.id);
   send('library', publicLibrary(false));
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('library', publicLibrary(true));
 }
@@ -622,6 +710,7 @@ function refreshLibrary(force) {
       games: [...steam, ...epic, ...manualEntries(settings.extraGames, 'games')].sort(byName),
       launchers: [...detected, ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName),
       office: [...officeApps, ...manualEntries(settings.extraOffice, 'office')].sort(byName),
+      tools: [...await scanTools(apps), ...manualEntries(settings.extraTools, 'tools')], // en orden de utilidad, no alfabético
     };
     broadcastLibrary();
   })().finally(() => { libraryScan = null; });
@@ -631,14 +720,15 @@ function rebuildManual() { // tras añadir o quitar a mano no hace falta volver 
   library.games = [...library.games.filter((e) => !e.manual), ...manualEntries(settings.extraGames, 'games')].sort(byName);
   library.launchers = [...library.launchers.filter((e) => !e.manual), ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName);
   library.office = [...library.office.filter((e) => !e.manual), ...manualEntries(settings.extraOffice, 'office')].sort(byName);
+  library.tools = [...library.tools.filter((e) => !e.manual), ...manualEntries(settings.extraTools, 'tools')];
   saveSettings();
   broadcastLibrary();
 }
-const extraKey = (kind) => ({ games: 'extraGames', launchers: 'extraLaunchers', office: 'extraOffice' }[kind] || null);
+const extraKey = (kind) => ({ games: 'extraGames', launchers: 'extraLaunchers', office: 'extraOffice', tools: 'extraTools' }[kind] || null);
 ipcMain.handle('library-get', (e) => publicLibrary(!!settingsWin && !settingsWin.isDestroyed() && e.sender === settingsWin.webContents));
 ipcMain.handle('library-refresh', () => refreshLibrary(true));
 ipcMain.on('library-open', (_e, id) => {
-  const entry = [...library.games, ...library.launchers, ...library.office].find((x) => x.id === id);
+  const entry = [...library.games, ...library.launchers, ...library.office, ...library.tools].find((x) => x.id === id);
   if (entry) launchEntry(entry.launch);
 });
 ipcMain.on('library-hide', (_e, id, hide) => {
@@ -657,7 +747,7 @@ ipcMain.handle('library-add', async (_e, kind, appId) => {
   rebuildManual();
 });
 ipcMain.on('library-remove', (_e, id) => {
-  const m = typeof id === 'string' && id.match(/^manual:(games|launchers|office):(.*)$/s);
+  const m = typeof id === 'string' && id.match(/^manual:(games|launchers|office|tools):(.*)$/s);
   if (!m) return;
   const key = extraKey(m[1]);
   settings[key] = settings[key].filter((x) => (x.appId || x.path) !== m[2]);
@@ -829,7 +919,11 @@ function buildTrayMenu() {
 }
 
 app.whenReady().then(() => {
+  app.setAppUserModelId('local.glass.island'); // necesario para las notificaciones de Windows
   loadSettings();
+  loadAgenda();
+  setInterval(checkReminders, 15000);
+  setTimeout(checkReminders, 5000);
   // Si la vinculación viene de una versión anterior, se reescribe con el comando actual.
   try { if (claudeHooks.status().outdated) claudeHooks.set(true); } catch { /* se deja como está */ }
   loadUsage();
@@ -841,5 +935,5 @@ app.whenReady().then(() => {
   startUpdater();
   setTimeout(() => refreshLibrary(false), 4000); // en segundo plano, para no retrasar el arranque
 });
-app.on('before-quit', () => { app.isQuitting = true; if (mediaProc) mediaProc.kill(); if (audioProc) audioProc.kill(); });
+app.on('before-quit', () => { app.isQuitting = true; clearTimeout(notesTimer); saveAgenda(); if (mediaProc) mediaProc.kill(); if (audioProc) audioProc.kill(); });
 app.on('window-all-closed', () => { if (app.isQuitting) app.quit(); });

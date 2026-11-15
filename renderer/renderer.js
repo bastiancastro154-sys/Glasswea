@@ -34,7 +34,9 @@ const state = {
   updateNoteUntil: 0,
   updateVersion: '',
   favorites: [],
-  library: { games: [], launchers: [], office: [] },
+  library: { games: [], launchers: [], office: [], tools: [] },
+  agenda: { events: [], notes: '' },
+  reminder: { text: '', until: 0 },
   projects: [],
 };
 
@@ -124,7 +126,9 @@ function renderCompact() {
   $('c-bar').style.display = flash ? 'block' : '';
   $('c-text').style.display = flash ? 'none' : '';
 
-  if (flash) {
+  if (!flash && Date.now() < state.reminder.until) {
+    icon = ICONS.bell; text = state.reminder.text; pulse = true;
+  } else if (flash) {
     const a = state.audio;
     icon = a.muted || a.volume === 0 ? ICONS.volOff : ICONS.vol;
     text = '';
@@ -245,8 +249,11 @@ function setIcon(id, svg) {
   if ($(id).dataset.k !== svg) { $(id).innerHTML = svg; $(id).dataset.k = svg; }
 }
 
+let booted = false; // el archivo define estado a lo largo de todo su cuerpo: no se pinta hasta haberlo cargado entero
 function render() {
+  if (!booted) return;
   const island = $('island');
+  island.scrollTop = 0; island.scrollLeft = 0; // la isla recorta su contenido: nunca debe quedar desplazado
   const compactWidth = renderCompact();
   renderExpanded();
   $('drawer-handle').classList.toggle('running', state.timer.running);
@@ -280,6 +287,7 @@ function buildCalendar() {
   const first = new Date(cal.year, cal.month, 1);
   const month = first.toLocaleDateString('es', { month: 'long' });
   $('cal-title').textContent = `${month[0].toUpperCase()}${month.slice(1)} ${cal.year}`;
+  const marked = new Set(state.agenda.events.map((e) => e.date));
   const grid = $('cal-grid');
   grid.textContent = '';
   for (const d of ['L', 'M', 'X', 'J', 'V', 'S', 'D']) {
@@ -288,16 +296,23 @@ function buildCalendar() {
     grid.append(el);
   }
   const start = new Date(cal.year, cal.month, 1 - ((first.getDay() + 6) % 7)); // la semana empieza en lunes
-  for (let i = 0; i < 42; i++) {
+  const weeks = Math.ceil((((first.getDay() + 6) % 7) + new Date(cal.year, cal.month + 1, 0).getDate()) / 7); // 5 filas casi siempre
+  for (let i = 0; i < weeks * 7; i++) {
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
     const el = document.createElement('div');
     el.className = 'day';
     if (d.getMonth() !== cal.month) el.classList.add('out');
     if (d.getDay() === 0 || d.getDay() === 6) el.classList.add('weekend');
     if (`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === todayKey) { el.classList.add('today'); el.setAttribute('aria-current', 'date'); }
+    const key = dateKey(d);
+    el.dataset.date = key;
+    if (key === selectedDate) el.classList.add('sel');
+    if (marked.has(key)) el.classList.add('has');
     el.textContent = d.getDate();
     grid.append(el);
   }
+  renderAgenda();
+  render();
 }
 function calendarTick() { // al cambiar de día se vuelve a marcar "hoy"
   const now = new Date();
@@ -310,7 +325,7 @@ function moveMonth(delta) {
 }
 $('cal-prev').onclick = () => moveMonth(-1);
 $('cal-next').onclick = () => moveMonth(1);
-$('cal-today').onclick = () => { const n = new Date(); cal.year = n.getFullYear(); cal.month = n.getMonth(); buildCalendar(); };
+$('cal-today').onclick = () => { const n = new Date(); cal.year = n.getFullYear(); cal.month = n.getMonth(); selectedDate = dateKey(n); buildCalendar(); };
 $('drawer-handle').onclick = () => {
   drawerOpen = !drawerOpen;
   try { localStorage.setItem('drawer', drawerOpen ? '1' : '0'); } catch { /* sin almacenamiento */ }
@@ -318,6 +333,89 @@ $('drawer-handle').onclick = () => {
   render();
 };
 $('drawer-handle').setAttribute('aria-expanded', String(drawerOpen));
+
+// ---------- Agenda: eventos y recordatorios por día ----------
+const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+let selectedDate = dateKey(new Date());
+let agendaType = 'event';
+function eventsOn(key) {
+  return state.agenda.events.filter((e) => e.date === key).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+}
+function selectDate(key, focusInput) {
+  selectedDate = key;
+  // Solo se mueve la marca: reconstruir la rejilla entre los dos clics impediría detectar el doble clic.
+  document.querySelectorAll('#cal-grid .day').forEach((d) => d.classList.toggle('sel', d.dataset.date === key));
+  renderAgenda();
+  render();
+  if (focusInput) $('ag-text').focus();
+}
+function renderAgenda() {
+  const [y, m, d] = selectedDate.split('-').map(Number);
+  const label = new Date(y, m - 1, d).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('agenda-date').textContent = label[0].toUpperCase() + label.slice(1);
+  const list = $('agenda-list');
+  list.textContent = '';
+  for (const e of eventsOn(selectedDate)) {
+    const row = document.createElement('div');
+    row.className = 'ag-item';
+    row.title = `${e.type === 'reminder' ? 'Recordatorio' : 'Evento'}${e.time ? ` · ${e.time}` : ''}\n${e.text}`;
+    const kind = document.createElement('span');
+    kind.className = 'ag-kind';
+    kind.innerHTML = e.type === 'reminder' ? ICONS.bell : '<i></i>';
+    const time = document.createElement('span');
+    time.className = 'ag-time'; time.textContent = e.time || '';
+    const text = document.createElement('span');
+    text.className = 'ag-text'; text.textContent = e.text;
+    const del = document.createElement('button');
+    del.textContent = '×'; del.title = 'Eliminar';
+    del.onclick = async () => onAgenda(await api.removeAgenda(e.id));
+    row.append(kind, ...(e.time ? [time] : []), text, del);
+    list.append(row);
+  }
+  $('ag-text').placeholder = agendaType === 'reminder' ? 'Nuevo recordatorio…' : 'Nuevo evento…';
+  document.querySelectorAll('#agenda-form .seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.type === agendaType)));
+}
+function onAgenda(a) {
+  if (!a) return;
+  state.agenda = { events: a.events || [], notes: a.notes || '' };
+  buildCalendar();
+}
+async function addAgendaItem() {
+  const text = $('ag-text').value.trim();
+  if (!text || !api) return;
+  const next = await api.addAgenda({ date: selectedDate, time: $('ag-time').value, text, type: agendaType });
+  $('ag-text').value = '';
+  $('ag-time').value = '';
+  onAgenda(next);
+}
+$('ag-add').onclick = addAgendaItem;
+$('ag-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') addAgendaItem(); });
+$('ag-time').addEventListener('keydown', (e) => { if (e.key === 'Enter') addAgendaItem(); });
+document.querySelectorAll('#agenda-form .seg button').forEach((b) => { b.onclick = () => { agendaType = b.dataset.type; renderAgenda(); }; });
+$('cal-grid').addEventListener('click', (e) => { const d = e.target.closest('.day'); if (d) selectDate(d.dataset.date, e.detail >= 2); });
+$('cal-grid').addEventListener('dblclick', (e) => { const d = e.target.closest('.day'); if (d) selectDate(d.dataset.date, true); });
+
+// ---------- Notas rápidas ----------
+let drawerTab = 'cal';
+try { drawerTab = localStorage.getItem('dtab') === 'notes' ? 'notes' : 'cal'; } catch { /* sin almacenamiento */ }
+function showDrawerTab(tab) {
+  drawerTab = tab;
+  try { localStorage.setItem('dtab', tab); } catch { /* sin almacenamiento */ }
+  $('calendar').hidden = tab !== 'cal';
+  $('notes').hidden = tab !== 'notes';
+  document.querySelectorAll('#drawer-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.dtab === tab)));
+  render();
+}
+document.querySelectorAll('#drawer-tabs button').forEach((b) => { b.onclick = () => showDrawerTab(b.dataset.dtab); });
+$('notes-text').addEventListener('input', () => api?.setNotes($('notes-text').value));
+
+// Al escribir en cualquier campo de la isla, esta acepta teclado y no se pliega.
+const isTextField = (el) => !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'range'));
+document.addEventListener('focusin', (e) => { if (isTextField(e.target)) startTyping(); });
+document.addEventListener('focusout', (e) => { if (isTextField(e.target) && !isTextField(e.relatedTarget)) stopTyping(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isTextField(document.activeElement) && document.activeElement.id !== 'r-search') document.activeElement.blur(); });
+
+showDrawerTab(drawerTab);
 buildCalendar();
 
 // ---------- Temporizador ----------
@@ -449,6 +547,7 @@ function renderOthers() {
 
 // ---------- Claude Code ----------
 function onClaude(d) {
+  if (!cfg.showClaude) return; // módulo apagado: se ignoran los avisos
   Object.assign(state.claude, d);
   render();
 }
@@ -482,6 +581,8 @@ function applySettings(s) {
   const t = state.timer;
   const total = t.mode === 'focus' ? FOCUS : BREAK;
   if (!t.running && t.total !== total) { t.total = t.remaining = total; } // no altera una cuenta en marcha
+  $('tiles').hidden = !s.showClaude;
+  if (!s.showClaude) state.claude = { state: 'off', detail: '', project: '', at: 0 };
   $('volume').hidden = !s.showVolume;
   $('actions').hidden = !s.showActions;
   $('vol-row').hidden = !s.showVolume && !s.showActions;
@@ -540,22 +641,22 @@ const TABS = [
   { id: 'apps', label: 'Apps', setting: 'showFavorites', empty: '＋ Agrega tus apps favoritas', section: undefined },
   { id: 'games', label: 'Juegos', setting: 'showGames', empty: 'No se encontraron juegos · añadir', section: 'juegos' },
   { id: 'launchers', label: 'Launchers', setting: 'showLaunchers', empty: 'No se encontraron launchers · añadir', section: 'juegos' },
-  { id: 'projects', label: 'Proyectos', setting: 'showProjects', empty: '＋ Crea tu primer proyecto', section: 'proyectos' },
   { id: 'office', label: 'Office', setting: 'showOffice', empty: 'No se encontraron apps de Office · añadir', section: 'office' },
+  { id: 'tools', label: 'Utilidades', setting: 'showTools', empty: 'No se encontraron utilidades · añadir', section: 'utilidades' },
 ];
 const RECENTS_KINDS = new Set(['word', 'excel', 'powerpoint', 'access', 'publisher', 'visio', 'project']);
 let officeView = null; // app de Office cuyo desplegable de recientes está abierto
 let currentTab = 'apps';
 try { currentTab = localStorage.getItem('tab') || 'apps'; } catch { /* sin almacenamiento */ }
 
+function projectItems() {
+  return state.projects.map((p) => ({
+    name: p.name, chip: true, count: p.items.length,
+    title: p.items.length ? `Abrir ${p.items.length} elemento(s):\n${p.items.map((it) => `· ${it.name}`).join('\n')}` : 'Proyecto vacío: añade elementos en Configuración',
+    open: () => (p.items.length ? api?.openProject(p.id) : api?.openSettings('proyectos')),
+  }));
+}
 function shelfItems(tab) {
-  if (tab === 'projects') {
-    return state.projects.map((p) => ({
-      name: p.name, chip: true, count: p.items.length,
-      title: p.items.length ? `Abrir ${p.items.length} elemento(s):\n${p.items.map((it) => `· ${it.name}`).join('\n')}` : 'Proyecto vacío: añade elementos en Configuración',
-      open: () => (p.items.length ? api?.openProject(p.id) : api?.openSettings('proyectos')),
-    }));
-  }
   if (tab === 'apps') return state.favorites.map((f, i) => ({ name: f.name, icon: f.icon, open: () => api?.openFavorite(i) }));
   return (state.library[tab] || []).map((e) => ({
     name: e.name, title: e.source ? `${e.name} · ${e.source}` : e.name, icon: e.icon, cover: tab === 'games',
@@ -594,6 +695,9 @@ function buildShelf() {
   box.classList.toggle('recents', !!officeView && tab.id === 'office');
   if (officeView && tab.id === 'office') { buildRecents(box); return; }
   const items = shelfItems(tab.id);
+  // Los proyectos son un subgrupo dentro de Office.
+  const withProjects = tab.id === 'office' && cfg.showProjects !== false;
+  if (withProjects && items.length) items.push({ sub: 'Proyectos' }, ...projectItems(), { addProject: true });
   if (!items.length) {
     const b = document.createElement('button');
     b.className = 'empty';
@@ -602,6 +706,21 @@ function buildShelf() {
     box.append(b);
   }
   for (const it of items) {
+    if (it.sub) {
+      const h = document.createElement('div');
+      h.className = 'sub'; h.textContent = it.sub;
+      box.append(h);
+      continue;
+    }
+    if (it.addProject) {
+      const add = document.createElement('button');
+      add.className = 'chip add';
+      add.textContent = state.projects.length ? '＋' : '＋ Crear proyecto';
+      add.title = 'Crear o editar proyectos';
+      add.onclick = () => api?.openSettings('proyectos');
+      box.append(add);
+      continue;
+    }
     const b = document.createElement('button');
     b.className = it.chip ? 'chip' : 'fav';
     b.title = it.title || it.name;
@@ -762,7 +881,7 @@ function onFavorites(list) {
   buildShelf();
 }
 function onLibrary(lib) {
-  state.library = { games: (lib && lib.games) || [], launchers: (lib && lib.launchers) || [], office: (lib && lib.office) || [] };
+  state.library = { games: (lib && lib.games) || [], launchers: (lib && lib.launchers) || [], office: (lib && lib.office) || [], tools: (lib && lib.tools) || [] };
   buildShelf();
 }
 
@@ -867,6 +986,9 @@ if (api) {
   api.getFavorites().then(onFavorites);
   api.onLibrary(onLibrary);
   api.onProjects(onProjects);
+  api.onAgenda(onAgenda);
+  api.getAgenda().then((ag) => { onAgenda(ag); if (ag) $('notes-text').value = ag.notes || ''; });
+  api.onReminder((r) => { state.reminder = { text: `Recordatorio: ${r.text}`, until: Date.now() + 15000 }; render(); setTimeout(render, 15100); });
   api.getProjects().then(onProjects);
   api.getLibrary().then(onLibrary);
   api.onClaudeLink(onClaudeLink);
@@ -880,4 +1002,5 @@ if (api) {
 }
 
 setInterval(() => { timerTick(); calendarTick(); render(); }, 1000);
+booted = true;
 render();

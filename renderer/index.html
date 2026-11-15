@@ -83,6 +83,10 @@
           <button id="timer-mode" title="Cambiar enfoque / descanso"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3 1.4-1.4L21.8 8l-5.4 5.4L15 12l3-3H7zM17 17H6l3 3-1.4 1.4L2.2 16l5.4-5.4L9 12l-3 3h11z"/></svg></button>
         </div>
       </section>
+    <div id="drawer-tabs" role="tablist">
+      <button data-dtab="cal" role="tab" aria-selected="true">Calendario</button>
+      <button data-dtab="notes" role="tab" aria-selected="false">Notas</button>
+    </div>
     <div id="calendar">
       <div id="cal-head">
         <span id="cal-title"></span>
@@ -91,6 +95,22 @@
         <button id="cal-next" title="Mes siguiente"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7-1.5-1.5L13 12 7.5 6.5z"/></svg></button>
       </div>
       <div id="cal-grid"></div>
+      <div id="agenda">
+        <div id="agenda-date"></div>
+        <div id="agenda-list"></div>
+        <div id="agenda-form">
+          <input id="ag-text" type="text" maxlength="120" placeholder="Nuevo evento…" aria-label="Texto del evento">
+          <input id="ag-time" type="time" aria-label="Hora (opcional)" title="Hora (opcional)">
+          <div class="seg" role="group" aria-label="Tipo">
+            <button data-type="event" aria-pressed="true">Evento</button>
+            <button data-type="reminder" aria-pressed="false" title="Avisa a su hora (o a las 9:00 si no tiene)">Recordatorio</button>
+          </div>
+          <button id="ag-add">Añadir</button>
+        </div>
+      </div>
+    </div>
+    <div id="notes" hidden>
+      <textarea id="notes-text" maxlength="20000" placeholder="Notas rápidas… se guardan solas" aria-label="Notas rápidas"></textarea>
     </div>
   </div>
 </div>

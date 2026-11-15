@@ -1,7 +1,7 @@
 const api = window.islandAPI;
 const $ = (id) => document.getElementById(id);
 const UNITS = { tint: '%', dark: '%', sheen: '%', blurPx: ' px' };
-const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage', 'showGames', 'showLaunchers', 'showOffice', 'showProjects'];
+const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage', 'showGames', 'showLaunchers', 'showOffice', 'showProjects', 'showTools', 'showClaude'];
 
 function show(s) {
   for (const k of FIELDS) {
@@ -117,6 +117,7 @@ $('fav-add-app').onclick = () => openPicker('favorites');
 $('lib-add-games').onclick = () => openPicker('games');
 $('lib-add-launchers').onclick = () => openPicker('launchers');
 $('lib-add-office').onclick = () => openPicker('office');
+$('lib-add-tools').onclick = () => openPicker('tools');
 
 // ---------- Juegos y launchers ----------
 function showLibraryList(boxId, list) {
@@ -143,6 +144,7 @@ function showLibrary(lib) {
   showLibraryList('lib-games', lib.games || []);
   showLibraryList('lib-launchers', lib.launchers || []);
   showLibraryList('lib-office', lib.office || []);
+  showLibraryList('lib-tools', lib.tools || []);
 }
 $('lib-refresh').onclick = async () => {
   $('lib-refresh').disabled = true;

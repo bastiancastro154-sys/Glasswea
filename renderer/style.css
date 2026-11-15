@@ -328,10 +328,12 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
   position: absolute; top: 0; left: 420px; width: 236px; z-index: 2;
   padding: 16px 16px 16px 4px;
   display: flex; flex-direction: column; gap: 12px;
-  opacity: 0; pointer-events: none; transition: opacity .25s ease;
+  /* Cerrado no debe ocupar sitio: si desbordara la isla, el navegador podría desplazar su contenido. */
+  display: none;
 }
+@keyframes drawer-in { from { opacity: 0; } to { opacity: 1; } }
 #drawer::before { content: ""; position: absolute; left: -4px; top: 16px; bottom: 16px; width: 1px; background: rgba(255, 255, 255, .16); }
-#island[data-mode="expanded"].drawer-open #drawer { opacity: 1; pointer-events: auto; transition-delay: .12s; }
+#island[data-mode="expanded"].drawer-open #drawer { display: flex; animation: drawer-in .3s ease .1s both; }
 
 #calendar { font-variant-numeric: tabular-nums; }
 #cal-head { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
@@ -346,3 +348,48 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 #cal-grid .day.weekend { opacity: .75; }
 #cal-grid .day.out.weekend { opacity: .28; }
 #cal-grid .day.today { background: #fff; color: #16161d; font-weight: 700; opacity: 1; text-shadow: none; }
+
+/* ---------- Panel lateral: pestañas, agenda y notas ---------- */
+#drawer-tabs { display: flex; gap: 4px; margin-bottom: -4px; }
+#drawer-tabs button { width: auto; height: 22px; padding: 0 10px; border-radius: 11px; font: inherit; font-size: 11.5px; opacity: .65; }
+#drawer-tabs button[aria-selected="true"] { background: rgba(255, 255, 255, .18); opacity: 1; font-weight: 600; }
+#cal-grid .day { cursor: pointer; position: relative; }
+#cal-grid .day:hover:not(.today) { background: rgba(255, 255, 255, .14); }
+#cal-grid .day.sel:not(.today) { box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .8); }
+#cal-grid .day.today.sel { box-shadow: 0 0 0 2px rgba(255, 255, 255, .45); }
+#cal-grid .day.has::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: rgb(var(--accent)); filter: brightness(1.5); }
+#cal-grid .day.today.has::after { background: #16161d; filter: none; }
+#agenda { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .14); }
+#agenda-date { font-size: 11.5px; font-weight: 600; margin-bottom: 4px; padding-left: 2px; }
+#agenda-list { display: flex; flex-direction: column; gap: 1px; max-height: 78px; overflow-y: auto; margin-bottom: 6px; }
+#agenda-list::-webkit-scrollbar { width: 6px; }
+#agenda-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .3); border-radius: 3px; }
+#agenda-list:empty::after { content: "Sin eventos. Escribe abajo para añadir."; font-size: 11px; opacity: .6; padding: 2px; }
+.ag-item { display: flex; align-items: center; gap: 6px; height: 24px; flex: none; font-size: 11.5px; padding-left: 2px; border-radius: 6px; }
+.ag-item:hover { background: rgba(255, 255, 255, .1); }
+.ag-item .ag-kind { width: 12px; flex: none; display: grid; place-items: center; }
+.ag-item .ag-kind svg { width: 11px; height: 11px; fill: #ffd166; }
+.ag-item .ag-kind i { width: 6px; height: 6px; border-radius: 50%; background: #fff; opacity: .8; }
+.ag-item .ag-time { flex: none; opacity: .7; font-variant-numeric: tabular-nums; }
+.ag-item .ag-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-item button { width: 20px; height: 20px; flex: none; opacity: 0; font-size: 13px; line-height: 1; }
+.ag-item:hover button, .ag-item button:focus-visible { opacity: .8; }
+#agenda-form { display: grid; grid-template-columns: 1fr auto; gap: 5px; }
+#drawer input[type="text"], #drawer input[type="time"], #notes-text {
+  min-width: 0; height: 26px; padding: 0 8px; border-radius: 8px; outline: none;
+  border: 1px solid rgba(255, 255, 255, .2); background: rgba(0, 0, 0, .22); color: #fff; font: inherit; font-size: 12px; color-scheme: dark;
+}
+#drawer input:focus, #notes-text:focus { border-color: rgba(255, 255, 255, .6); }
+#drawer input::placeholder, #notes-text::placeholder { color: rgba(255, 255, 255, .5); }
+#ag-time { width: 76px; padding: 0 4px !important; }
+.seg { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .2); }
+.seg button { flex: 1; width: auto; height: 24px; border-radius: 0; font: inherit; font-size: 11px; opacity: .7; }
+.seg button[aria-pressed="true"] { background: rgba(255, 255, 255, .22); opacity: 1; font-weight: 600; }
+#ag-add { width: auto; height: 26px; padding: 0 10px; border-radius: 8px; font: inherit; font-size: 11.5px; background: rgba(255, 255, 255, .16); }
+#notes-text { width: 100%; height: 250px; padding: 8px; resize: none; line-height: 1.4; user-select: text; }
+#notes-text::-webkit-scrollbar { width: 6px; }
+#notes-text::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .3); border-radius: 3px; }
+
+/* Subgrupo de proyectos dentro de Office */
+#favorites .sub { flex-basis: 100%; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; opacity: .6; margin-top: 4px; padding-left: 2px; }
+#favorites .chip.add { font-weight: 400; opacity: .75; border-style: dashed; padding: 0 12px; }
