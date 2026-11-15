@@ -258,6 +258,7 @@ function render() {
   renderExpanded();
   $('drawer-handle').classList.toggle('running', state.timer.running);
   $('drawer-handle').title = state.timer.running ? `Enfoque y calendario · quedan ${fmt(timerRemaining())}` : 'Enfoque y calendario';
+  $('agenda').hidden = !drawerOpen; // la agenda acompaña al calendario del panel lateral
   if (state.hover) {
     // Con el panel lateral abierto la isla crece hacia la derecha: se desplaza la mitad de lo que crece
     // para que el borde izquierdo no se mueva.

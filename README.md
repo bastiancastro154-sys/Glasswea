@@ -5,7 +5,8 @@ a través de ella y toma el color de la carátula de lo que suena.
 
 - **Música**: lo que reproduzca Windows (Spotify, navegador, etc.), con carátula, progreso y controles.
 - **Claude Code**: muestra si está pensando, qué herramienta usa, cuándo termina o cuándo te necesita.
-- **Temporizador de enfoque**: 25 min de enfoque / 5 de descanso.
+- **Panel lateral**: temporizador de enfoque, calendario con eventos y recordatorios, y notas rápidas.
+- **Utilidades**: calculadora, recortes, lupa, explorador, navegadores y otras herramientas de Windows.
 - **Volumen**: deslizador, silencio e indicador al cambiarlo.
 - **Acciones rápidas**: recorte de pantalla, silenciar micrófono, bloquear equipo.
 - **Apps favoritas**: hasta 10 accesos directos, configurables.

@@ -69,6 +69,20 @@
       <div id="shelf-tabs" role="tablist"></div>
       <div id="favorites"></div>
     </div>
+
+    <div id="agenda">
+      <div id="agenda-date"></div>
+      <div id="agenda-list"></div>
+      <div id="agenda-form">
+        <input id="ag-text" type="text" maxlength="120" placeholder="Nuevo evento…" aria-label="Texto del evento">
+        <input id="ag-time" type="time" aria-label="Hora (opcional)" title="Hora (opcional)">
+        <div class="seg" role="group" aria-label="Tipo">
+          <button data-type="event" aria-pressed="true">Evento</button>
+          <button data-type="reminder" aria-pressed="false" title="Avisa a su hora (o a las 9:00 si no tiene)">Recordatorio</button>
+        </div>
+        <button id="ag-add">Añadir</button>
+      </div>
+    </div>
   </div>
   <div id="drawer">
       <section id="timer" class="tile">
@@ -95,19 +109,6 @@
         <button id="cal-next" title="Mes siguiente"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7-1.5-1.5L13 12 7.5 6.5z"/></svg></button>
       </div>
       <div id="cal-grid"></div>
-      <div id="agenda">
-        <div id="agenda-date"></div>
-        <div id="agenda-list"></div>
-        <div id="agenda-form">
-          <input id="ag-text" type="text" maxlength="120" placeholder="Nuevo evento…" aria-label="Texto del evento">
-          <input id="ag-time" type="time" aria-label="Hora (opcional)" title="Hora (opcional)">
-          <div class="seg" role="group" aria-label="Tipo">
-            <button data-type="event" aria-pressed="true">Evento</button>
-            <button data-type="reminder" aria-pressed="false" title="Avisa a su hora (o a las 9:00 si no tiene)">Recordatorio</button>
-          </div>
-          <button id="ag-add">Añadir</button>
-        </div>
-      </div>
     </div>
     <div id="notes" hidden>
       <textarea id="notes-text" maxlength="20000" placeholder="Notas rápidas… se guardan solas" aria-label="Notas rápidas"></textarea>

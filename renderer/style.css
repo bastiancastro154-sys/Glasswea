@@ -359,9 +359,10 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 #cal-grid .day.today.sel { box-shadow: 0 0 0 2px rgba(255, 255, 255, .45); }
 #cal-grid .day.has::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: rgb(var(--accent)); filter: brightness(1.5); }
 #cal-grid .day.today.has::after { background: #16161d; filter: none; }
-#agenda { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .14); }
+/* La agenda del día va bajo la columna principal para que ambas columnas queden a la misma altura. */
+#agenda { padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .14); }
 #agenda-date { font-size: 11.5px; font-weight: 600; margin-bottom: 4px; padding-left: 2px; }
-#agenda-list { display: flex; flex-direction: column; gap: 1px; max-height: 78px; overflow-y: auto; margin-bottom: 6px; }
+#agenda-list { display: flex; flex-direction: column; gap: 1px; max-height: 74px; overflow-y: auto; margin-bottom: 6px; }
 #agenda-list::-webkit-scrollbar { width: 6px; }
 #agenda-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .3); border-radius: 3px; }
 #agenda-list:empty::after { content: "Sin eventos. Escribe abajo para añadir."; font-size: 11px; opacity: .6; padding: 2px; }
@@ -374,19 +375,22 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 .ag-item .ag-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-item button { width: 20px; height: 20px; flex: none; opacity: 0; font-size: 13px; line-height: 1; }
 .ag-item:hover button, .ag-item button:focus-visible { opacity: .8; }
-#agenda-form { display: grid; grid-template-columns: 1fr auto; gap: 5px; }
-#drawer input[type="text"], #drawer input[type="time"], #notes-text {
+#agenda-form { display: flex; gap: 5px; }
+#ag-text { flex: 1; }
+#agenda-form .seg { flex: none; width: 132px; height: 26px; }
+#agenda-form .seg button { padding: 0; }
+#ag-text, #ag-time, #notes-text {
   min-width: 0; height: 26px; padding: 0 8px; border-radius: 8px; outline: none;
   border: 1px solid rgba(255, 255, 255, .2); background: rgba(0, 0, 0, .22); color: #fff; font: inherit; font-size: 12px; color-scheme: dark;
 }
-#drawer input:focus, #notes-text:focus { border-color: rgba(255, 255, 255, .6); }
-#drawer input::placeholder, #notes-text::placeholder { color: rgba(255, 255, 255, .5); }
+#ag-text:focus, #ag-time:focus, #notes-text:focus { border-color: rgba(255, 255, 255, .6); }
+#ag-text::placeholder, #notes-text::placeholder { color: rgba(255, 255, 255, .5); }
 #ag-time { width: 76px; padding: 0 4px !important; }
 .seg { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .2); }
 .seg button { flex: 1; width: auto; height: 24px; border-radius: 0; font: inherit; font-size: 11px; opacity: .7; }
 .seg button[aria-pressed="true"] { background: rgba(255, 255, 255, .22); opacity: 1; font-weight: 600; }
 #ag-add { width: auto; height: 26px; padding: 0 10px; border-radius: 8px; font: inherit; font-size: 11.5px; background: rgba(255, 255, 255, .16); }
-#notes-text { width: 100%; height: 250px; padding: 8px; resize: none; line-height: 1.4; user-select: text; }
+#notes-text { width: 100%; height: 190px; padding: 8px; resize: none; line-height: 1.4; user-select: text; }
 #notes-text::-webkit-scrollbar { width: 6px; }
 #notes-text::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .3); border-radius: 3px; }
 
