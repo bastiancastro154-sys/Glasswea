@@ -563,6 +563,17 @@ $('island').addEventListener('mouseenter', () => {
   if (state.claude.state === 'attention') state.claude.state = 'idle';
   render();
 });
+// Mientras el ratón se mueve sobre la isla se reafirma que acepta clics. Así, si la ventana quedó
+// desincronizada (por ejemplo al volver de la suspensión), se corrige sola al primer movimiento.
+let lastAssert = 0;
+$('island').addEventListener('mousemove', () => {
+  const now = Date.now();
+  if (now - lastAssert < 400) return;
+  lastAssert = now;
+  mouseInside = true;
+  api?.setInteractive(true);
+  if (!state.hover) { clearTimeout(leaveTimer); state.hover = true; render(); }
+});
 $('island').addEventListener('mouseleave', () => {
   mouseInside = false;
   if (typing) { api?.setInteractive(false); return; } // sigue abierta hasta que el buscador pierda el foco
@@ -981,6 +992,13 @@ if (api) {
   api.onSettings(applySettings);
   api.getSettings().then(applySettings);
   api.onAudio(onAudio);
+  api.onResetInteraction(() => { // tras suspender: se pliega y se olvida el estado del ratón y del teclado
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    typing = false; mouseInside = false; lastAssert = 0;
+    clearTimeout(leaveTimer);
+    state.hover = false;
+    render();
+  });
   api.onUpdateReady((v) => { state.updateVersion = v; state.updateNoteUntil = Date.now() + 15000; render(); });
   api.getAudio().then(onAudio);
   api.onFavorites(onFavorites);

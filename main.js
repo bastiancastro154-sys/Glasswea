@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, desktopCapturer, shell, dialog, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, desktopCapturer, shell, dialog, Notification, powerMonitor } = require('electron');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
@@ -137,10 +137,31 @@ ipcMain.on('set-focusable', (_e, on) => {
   if (on) { win.focus(); win.webContents.focus(); } else { win.blur(); }
 });
 ipcMain.on('set-interactive', (_e, on) => {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   if (on) win.setIgnoreMouseEvents(false);
   else win.setIgnoreMouseEvents(true, { forward: true });
 });
+
+// Al volver de la suspensión o del bloqueo, Windows puede dejar la ventana en un estado incoherente (se
+// despliega pero los clics la atraviesan). Se restablece todo: posición, primer plano y paso de clics, y
+// se pide a la isla que se pliegue para que vuelva a sincronizarse al pasar el ratón.
+function recoverWindow() {
+  if (!win || win.isDestroyed()) return;
+  placeWindow();
+  win.setFocusable(false);
+  win.setSkipTaskbar(true);
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setIgnoreMouseEvents(false);
+  win.setIgnoreMouseEvents(true, { forward: true });
+  if (!win.isVisible()) win.showInactive();
+  send('reset-interaction');
+  send('blur-changed'); // la captura de pantalla del desenfoque también se corta al suspender
+}
+function watchPower() {
+  for (const ev of ['resume', 'unlock-screen']) {
+    powerMonitor.on(ev, () => { setTimeout(recoverWindow, 1500); setTimeout(recoverWindow, 6000); }); // el segundo intento cubre equipos lentos al despertar
+  }
+}
 
 // ---------- Volumen y micrófono (ayudante de PowerShell; las órdenes van por un socket local) ----------
 let audioProc = null;
@@ -933,6 +954,7 @@ app.whenReady().then(() => {
   startHookServer();
   startAudio();
   startUpdater();
+  watchPower();
   setTimeout(() => refreshLibrary(false), 4000); // en segundo plano, para no retrasar el arranque
 });
 app.on('before-quit', () => { app.isQuitting = true; clearTimeout(notesTimer); saveAgenda(); if (mediaProc) mediaProc.kill(); if (audioProc) audioProc.kill(); });

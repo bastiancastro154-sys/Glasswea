@@ -61,5 +61,6 @@ contextBridge.exposeInMainWorld('islandAPI', {
   getSettings: () => ipcRenderer.invoke('settings-get'),
   setSettings: (patch) => ipcRenderer.send('settings-set', patch),
   onSettings: (cb) => ipcRenderer.on('settings', (_e, s) => cb(s)),
+  onResetInteraction: (cb) => ipcRenderer.on('reset-interaction', () => cb()),
   setInteractive: (on) => ipcRenderer.send('set-interactive', on),
 });
