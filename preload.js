@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('islandAPI', {
   onMedia: (cb) => ipcRenderer.on('media', (_e, d) => cb(d)),
@@ -61,6 +61,19 @@ contextBridge.exposeInMainWorld('islandAPI', {
   openBrowserItem: (id, item) => ipcRenderer.send('browser-open', id, item),
   pinBrowserItem: (id, item) => ipcRenderer.invoke('browser-pin', id, item),
   unpinBrowser: (id, index) => ipcRenderer.invoke('browser-unpin', id, index),
+  dragStart: () => ipcRenderer.send('drag-start'),
+  dragEnd: () => ipcRenderer.send('drag-end'),
+  resetPosition: () => ipcRenderer.send('pos-reset'),
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
+  dropPaths: (paths, target) => ipcRenderer.invoke('drop-paths', paths, target),
+  onCategories: (cb) => ipcRenderer.on('categories', (_e, l) => cb(l)),
+  getCategories: () => ipcRenderer.invoke('categories-get'),
+  createCategory: () => ipcRenderer.invoke('category-create'),
+  renameCategory: (id, name) => ipcRenderer.send('category-rename', id, name),
+  deleteCategory: (id) => ipcRenderer.send('category-delete', id),
+  addCategoryApp: (id, appId) => ipcRenderer.invoke('category-add-app', id, appId),
+  removeCategoryItem: (id, index) => ipcRenderer.send('category-remove-item', id, index),
+  openCategoryItem: (id, index) => ipcRenderer.send('category-open', id, index),
   onFocusSection: (cb) => ipcRenderer.on('focus-section', (_e, s) => cb(s)),
   getClaudeLink: () => ipcRenderer.invoke('claude-link-status'),
   setClaudeLink: (link) => ipcRenderer.invoke('claude-link-set', link),

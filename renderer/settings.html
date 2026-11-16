@@ -44,6 +44,8 @@
   .project .items:empty::after { content: 'Sin elementos todavía.'; color: #8d8ba0; }
   .project .type { width: 54px; flex: none; color: #8d8ba0; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   .project-url { display: flex; gap: 8px; margin-top: 8px; }
+  .drop { margin-top: 8px; padding: 10px; border: 1px dashed #4a4958; border-radius: 8px; color: #8d8ba0; font-size: 12px; text-align: center; }
+  .drop.over { border-color: #8f8cff; color: #ecebf2; background: #20202c; }
   #picker { position: fixed; inset: 0; background: #16161d; display: flex; flex-direction: column; padding: 16px 20px; }
   #picker header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
   #picker header button { margin: 0; }
@@ -66,6 +68,12 @@
   <div class="row"><label for="dark">Oscurecer</label><input type="range" id="dark" min="0" max="80"><output for="dark"></output></div>
   <div class="row"><label for="sheen">Reflejos</label><input type="range" id="sheen" min="0" max="100"><output for="sheen"></output></div>
 
+  <h2>Tamaño y posición</h2>
+  <div class="row"><label for="scale">Escala de la isla</label><input type="range" id="scale" min="70" max="150" step="5"><output for="scale"></output></div>
+  <div class="row"><label for="mainWidth">Ancho desplegada</label><input type="range" id="mainWidth" min="380" max="640" step="10"><output for="mainWidth"></output></div>
+  <div class="row"><span>Posición</span><button id="pos-reset" style="margin:0">Volver al centro</button></div>
+  <p class="hint">Para moverla, despliega la isla y arrastra el icono de las cuatro flechas (junto al engranaje) a cualquier punto de cualquier pantalla. El alto se ajusta solo a su contenido.</p>
+
   <h2>Desenfoque</h2>
   <div class="row"><label for="blur">Difuminar el escritorio</label><input type="checkbox" id="blur"></div>
   <div class="row" id="row-blurPx"><label for="blurPx">Cantidad</label><input type="range" id="blurPx" min="2" max="40"><output for="blurPx"></output></div>
@@ -87,12 +95,15 @@
   <div class="row"><label for="showBrowsers">Navegadores</label><input type="checkbox" id="showBrowsers"></div>
   <div class="row"><label for="showTools">Utilidades</label><input type="checkbox" id="showTools"></div>
   <div class="row"><label for="showClaude">Claude Code</label><input type="checkbox" id="showClaude"></div>
+  <div class="row"><label for="hideEmptyTabs">Ocultar las pestañas vacías</label><input type="checkbox" id="hideEmptyTabs"></div>
+  <p class="hint">Estos ajustes son de este equipo: en otro dispositivo puedes tener pestañas distintas. Con "ocultar vacías", una pestaña como Juegos desaparece sola donde no hay nada que mostrar.</p>
   <div class="row"><label for="showUsage">Consumo del plan de Claude</label><input type="checkbox" id="showUsage"></div>
 
   <h2>Apps favoritas</h2>
   <div id="fav-list"></div>
   <div class="inline"><button id="fav-add-app">Añadir app…</button><button id="fav-add-file">Examinar…</button><button id="fav-add-folder">Añadir carpeta…</button></div>
-  <p class="hint">Hasta 10. "Añadir app" busca las aplicaciones instaladas; "Examinar" permite elegir un archivo a mano.</p>
+  <div class="drop" id="fav-drop">O arrastra aquí accesos directos, programas o carpetas</div>
+  <p class="hint">Hasta 30. "Añadir app" busca las aplicaciones instaladas; "Examinar" permite elegir un archivo a mano. También puedes soltarlos directamente sobre la isla, en la pestaña donde los quieras.</p>
 
   <h2 id="juegos">Juegos</h2>
   <div class="lib-list" id="lib-games"></div>
@@ -117,6 +128,11 @@
   <div class="lib-list" id="lib-tools"></div>
   <div class="inline"><button id="lib-add-tools">Añadir utilidad…</button></div>
   <p class="hint">Herramientas de Windows: calculadora, recortes, lupa, explorador y otras. Oculta las que no uses.</p>
+
+  <h2 id="categorias">Categorías propias</h2>
+  <div id="category-list"></div>
+  <div class="inline"><button id="category-new">Nueva categoría</button></div>
+  <p class="hint">Cada categoría es una pestaña más en la isla, con las apps, archivos o carpetas que tú elijas. Hasta 8.</p>
 
   <h2 id="proyectos">Proyectos</h2>
   <div id="project-list"></div>

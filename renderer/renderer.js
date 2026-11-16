@@ -35,6 +35,7 @@ const state = {
   updateVersion: '',
   favorites: [],
   library: { games: [], launchers: [], office: [], tools: [], browsers: [] },
+  categories: [],
   agenda: { events: [], notes: '', tasks: [] },
   reminder: { text: '', until: 0 },
   projects: [],
@@ -265,7 +266,7 @@ function render() {
     const extra = drawerOpen ? DRAWER_W : 0;
     island.dataset.mode = 'expanded';
     island.classList.toggle('drawer-open', drawerOpen);
-    island.style.width = `${420 + extra}px`;
+    island.style.width = `${mainWidth() + extra}px`;
     island.style.height = `${Math.max($('expanded').offsetHeight, drawerOpen ? $('drawer').offsetHeight : 0)}px`;
     island.style.transform = `translateX(calc(-50% + ${extra / 2}px))`;
   } else {
@@ -278,6 +279,8 @@ function render() {
 
 // ---------- Panel lateral: enfoque y calendario ----------
 const DRAWER_W = 236;
+const mainWidth = () => cfg.mainWidth || 420;
+const zoom = () => (cfg.scale || 100) / 100;
 let drawerOpen = false;
 try { drawerOpen = localStorage.getItem('drawer') === '1'; } catch { /* sin almacenamiento */ }
 const cal = { year: new Date().getFullYear(), month: new Date().getMonth(), builtFor: '' };
@@ -419,32 +422,33 @@ function taskRow(t, key) {
   return row;
 }
 
-// Resumen en la columna principal: primero las tareas pendientes de hoy (se pueden completar ahí mismo) y
-// después lo próximo del calendario. Un clic lleva a ese día.
+// Resumen en la columna principal: las tareas vigentes (se pueden completar ahí mismo) y los recordatorios
+// que aún no han saltado. Un clic lleva a ese día.
 function renderUpcoming() {
   const today = dateKey(new Date());
   const pending = state.agenda.tasks.filter((t) => !t.done && t.start <= today).sort((a, b) => a.start.localeCompare(b.start) || a.created - b.created);
-  const events = state.agenda.events.filter((e) => e.date >= today)
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '99').localeCompare(b.time || '99'));
-  const all = [...pending.map((t) => ({ task: t })), ...events.map((e) => ({ event: e }))];
+  const reminders = state.agenda.events.filter((e) => e.type === 'reminder' && !e.notified && e.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '09:00').localeCompare(b.time || '09:00'));
+  const all = [...pending.map((t) => ({ task: t })), ...reminders.map((e) => ({ event: e }))];
   const list = $('upcoming-list');
+  const scroll = list.scrollTop;
   list.textContent = '';
   const title = $('upcoming-title');
-  title.textContent = 'Pendientes y próximos';
-  if (pending.length) {
+  title.textContent = 'Tareas y recordatorios';
+  if (all.length) {
     const more = document.createElement('span');
     more.id = 'upcoming-more';
-    more.textContent = `${pending.length} tarea${pending.length === 1 ? '' : 's'} pendiente${pending.length === 1 ? '' : 's'}`;
+    more.textContent = [pending.length ? `${pending.length} tarea${pending.length === 1 ? '' : 's'}` : '', reminders.length ? `${reminders.length} recordatorio${reminders.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
     title.append(more);
   }
   if (!all.length) {
     const p = document.createElement('div');
     p.className = 'up-empty';
-    p.textContent = 'Nada pendiente. Haz doble clic en una fecha del calendario para anotar un evento, un aviso, una nota o una tarea.';
+    p.textContent = 'Sin tareas vigentes ni recordatorios. Haz doble clic en una fecha del calendario para anotar.';
     list.append(p);
   }
   const goTo = (key) => { const [y, m] = key.split('-').map(Number); cal.year = y; cal.month = m - 1; selectedDate = key; if (drawerTab !== 'cal') showDrawerTab('cal'); buildCalendar(); showDayView(true); };
-  for (const it of all.slice(0, 3)) {
+  for (const it of all) {
     const row = document.createElement('div');
     row.className = 'up-row';
     const open = document.createElement('button');
@@ -464,18 +468,19 @@ function renderUpcoming() {
       row.append(taskBullet(t, today), open);
     } else {
       const e = it.event;
-      row.title = `${KIND_LABEL[e.type] || 'Evento'}${e.time ? ` · ${e.time}` : ''}\n${e.text}`;
+      row.title = `Recordatorio · ${e.time || '09:00'}\n${e.text}`;
       const label = e.date === today ? 'hoy' : shortDate(e.date);
-      day.textContent = e.time ? `${label} ${e.time}` : label;
+      day.textContent = `${label} ${e.time || '09:00'}`;
       text.textContent = e.text;
       open.append(day, text);
       open.onclick = () => goTo(e.date);
-      const k = kindIcon(e.type);
+      const k = kindIcon('reminder');
       k.style.width = '18px';
       row.append(k, open);
     }
     list.append(row);
   }
+  list.scrollTop = scroll;
 }
 function renderAgenda() {
   const [y, m, d] = selectedDate.split('-').map(Number);
@@ -550,11 +555,25 @@ showDrawerTab(drawerTab);
 buildCalendar();
 
 // ---------- Temporizador ----------
+// El temporizador se guarda para que sobreviva a un reinicio de la ventana (por ejemplo tras la suspensión).
+function saveTimer() {
+  const t = state.timer;
+  try { localStorage.setItem('timer', JSON.stringify({ mode: t.mode, total: t.total, remaining: timerRemaining(), running: t.running, endAt: t.endAt })); } catch { /* sin almacenamiento */ }
+}
+try {
+  const saved = JSON.parse(localStorage.getItem('timer') || 'null');
+  if (saved && Number.isFinite(saved.total) && Number.isFinite(saved.remaining)) {
+    const live = saved.running && saved.endAt > Date.now();
+    Object.assign(state.timer, { mode: saved.mode === 'break' ? 'break' : 'focus', total: saved.total, remaining: live ? (saved.endAt - Date.now()) / 1000 : saved.remaining, running: live, endAt: live ? saved.endAt : 0 });
+    if (saved.running && !live) state.timer.remaining = saved.total; // terminó mientras la isla estaba cerrada
+  }
+} catch { /* dato corrupto */ }
 function timerTick() {
   const t = state.timer;
   if (t.running && Date.now() >= t.endAt) {
     t.running = false;
     t.finishedAt = Date.now();
+    setTimeout(saveTimer, 0);
     t.mode = t.mode === 'focus' ? 'break' : 'focus'; // prepara la siguiente fase
     t.total = t.remaining = t.mode === 'focus' ? FOCUS : BREAK;
     try { new Notification('Glass Island', { body: t.mode === 'break' ? 'Enfoque completado. Toca descansar.' : 'Descanso terminado. A enfocarse.' }); } catch { /* sin permiso */ }
@@ -564,11 +583,13 @@ $('timer-toggle').onclick = () => {
   const t = state.timer;
   if (t.running) { t.remaining = timerRemaining(); t.running = false; }
   else { t.endAt = Date.now() + t.remaining * 1000; t.running = true; t.finishedAt = 0; }
+  saveTimer();
   render();
 };
 $('timer-reset').onclick = () => {
   const t = state.timer;
   t.running = false; t.remaining = t.total; t.finishedAt = 0;
+  saveTimer();
   render();
 };
 $('timer-mode').onclick = () => {
@@ -576,6 +597,7 @@ $('timer-mode').onclick = () => {
   t.running = false; t.finishedAt = 0;
   t.mode = t.mode === 'focus' ? 'break' : 'focus';
   t.total = t.remaining = t.mode === 'focus' ? FOCUS : BREAK;
+  saveTimer();
   render();
 };
 
@@ -710,6 +732,53 @@ $('island').addEventListener('mouseleave', () => {
   leaveTimer = setTimeout(collapse, 250);
 });
 
+// ---------- Mover la isla arrastrando su asa ----------
+const mover = $('btn-move');
+mover.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  try { mover.setPointerCapture(e.pointerId); } catch { /* sin captura */ }
+  api?.dragStart();
+});
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) mover.addEventListener(ev, () => api?.dragEnd());
+mover.title = 'Arrastra para mover la isla (se restablece desde Configuración)';
+
+// Si la ventana pierde el foco (clic en otra app), se deja de escribir y la isla se pliega.
+window.addEventListener('blur', () => {
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  stopTyping();
+});
+
+// ---------- Soltar accesos directos o programas sobre la isla ----------
+const hasFiles = (e) => !!e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+function dropTarget() {
+  return currentTab === 'apps' ? 'favorites' : currentTab; // tipo de pestaña o 'cat:<id>'
+}
+let dropLeave = null;
+document.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  clearTimeout(dropLeave);
+  mouseInside = true;
+  api?.setInteractive(true);
+  if (!state.hover) { state.hover = true; }
+  $('island').classList.add('dropping');
+  render();
+});
+document.addEventListener('dragleave', () => {
+  clearTimeout(dropLeave);
+  dropLeave = setTimeout(() => { $('island').classList.remove('dropping'); mouseInside = false; collapse(); }, 400);
+});
+document.addEventListener('drop', async (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  clearTimeout(dropLeave);
+  $('island').classList.remove('dropping');
+  const paths = [...e.dataTransfer.files].map((f) => api?.pathForFile(f)).filter(Boolean);
+  if (paths.length && api) await api.dropPaths(paths, dropTarget());
+  render();
+});
+
 // ---------- Configuración ----------
 function applySettings(s) {
   cfg = s;
@@ -718,6 +787,9 @@ function applySettings(s) {
   root.setProperty('--dark', s.dark / 100);
   root.setProperty('--sheen', s.sheen / 100);
   root.setProperty('--blur', `${s.blurPx}px`);
+  root.setProperty('--main-w', `${s.mainWidth || 420}px`);
+  document.documentElement.style.zoom = String((s.scale || 100) / 100);
+  blur.x = blur.y = null; // la escala cambia la alineación del desenfoque
   FOCUS = s.focusMin * 60;
   BREAK = s.breakMin * 60;
   const t = state.timer;
@@ -800,6 +872,10 @@ function projectItems() {
   }));
 }
 function shelfItems(tab) {
+  if (tab.startsWith('cat:')) {
+    const c = state.categories.find((x) => `cat:${x.id}` === tab);
+    return c ? c.items.map((it, i) => ({ name: it.name, icon: it.icon, open: () => api?.openCategoryItem(c.id, i) })) : [];
+  }
   if (tab === 'apps') return state.favorites.map((f, i) => ({ name: f.name, icon: f.icon, open: () => api?.openFavorite(i) }));
   return (state.library[tab] || []).map((e) => ({
     name: e.name, title: e.source ? `${e.name} · ${e.source}` : e.name, icon: e.icon, cover: tab === 'games',
@@ -808,14 +884,25 @@ function shelfItems(tab) {
   }));
 }
 // Reconstruye las pestañas y sus iconos. Solo se llama cuando cambian los datos, no en cada refresco.
+// Pestañas visibles: las activadas en Configuración, sin las vacías (si así se eligió), más las categorías propias.
+function visibleTabs() {
+  const detected = new Set(['games', 'launchers', 'office', 'browsers', 'tools']);
+  const base = TABS.filter((t) => cfg[t.setting] !== false).filter((t) => {
+    if (cfg.hideEmptyTabs === false || !detected.has(t.id)) return true;
+    if ((state.library[t.id] || []).length) return true;
+    return t.id === 'office' && cfg.showProjects !== false && state.projects.length > 0;
+  });
+  return [...base, ...state.categories.map((c) => ({ id: `cat:${c.id}`, label: c.name, category: c, empty: '＋ Añade apps o suéltalas aquí', section: 'categorias' }))];
+}
 function buildShelf() {
-  const tabs = TABS.filter((t) => cfg[t.setting] !== false);
+  const tabs = visibleTabs();
   $('shelf').hidden = tabs.length === 0;
   if (!tabs.length) return render();
   if (!tabs.some((t) => t.id === currentTab)) currentTab = tabs[0].id;
   const tab = tabs.find((t) => t.id === currentTab);
 
   const bar = $('shelf-tabs');
+  const barScroll = bar.scrollLeft;
   bar.textContent = '';
   bar.hidden = tabs.length < 2;
   for (const t of tabs) {
@@ -832,6 +919,9 @@ function buildShelf() {
     };
     bar.append(b);
   }
+  bar.scrollLeft = barScroll;
+  const active = bar.querySelector('[aria-selected="true"]');
+  if (active && (active.offsetLeft < bar.scrollLeft || active.offsetLeft + active.offsetWidth > bar.scrollLeft + bar.clientWidth)) bar.scrollLeft = active.offsetLeft - 20;
 
   const box = $('favorites');
   box.textContent = '';
@@ -1045,12 +1135,10 @@ let mouseInside = false;
 function startTyping() {
   if (typing) return;
   typing = true;
-  api?.setFocusable(true);
 }
 function stopTyping() {
   if (!typing) return;
   typing = false;
-  api?.setFocusable(false);
   if (!mouseInside) collapse();
 }
 function collapse() {
@@ -1064,6 +1152,8 @@ function onProjects(list) {
   state.projects = list || [];
   buildShelf();
 }
+
+$('shelf-tabs').addEventListener('wheel', (e) => { $('shelf-tabs').scrollLeft += e.deltaY || e.deltaX; }, { passive: true }); // la rueda desplaza las pestañas
 
 function onFavorites(list) {
   state.favorites = list || [];
@@ -1082,19 +1172,23 @@ function stopBlur() {
   $('backdrop').srcObject = null;
   $('island').classList.remove('blur');
 }
+let blurRun = 0; // si llegan varias peticiones seguidas, solo cuenta la última
 async function setupBlur() {
+  const run = ++blurRun;
   stopBlur();
   try {
     const cfg = await api.getBlurConfig();
+    if (run !== blurRun) return;
     if (!cfg.enabled) return;
     // Baja resolución y pocos fps: al ir difuminado no se nota y casi no consume.
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: cfg.sourceId, maxWidth: 1280, maxHeight: 800, maxFrameRate: 20 } },
     });
+    if (run !== blurRun) { stream.getTracks().forEach((t) => t.stop()); return; }
     const v = $('backdrop');
-    v.style.width = `${cfg.screenW}px`;
-    v.style.height = `${cfg.screenH}px`;
+    v.style.width = `${cfg.screenW / zoom()}px`; // la página va escalada: se compensa para que coincida con la pantalla
+    v.style.height = `${cfg.screenH / zoom()}px`;
     v.srcObject = stream;
     await v.play();
     blur.stream = stream; blur.cfg = cfg; blur.x = blur.y = null;
@@ -1109,7 +1203,8 @@ async function setupBlur() {
 function trackBlur() {
   if (blur.cfg) {
     const r = $('island').getBoundingClientRect();
-    const x = -(blur.cfg.winX + r.left + 1), y = -(blur.cfg.winY + r.top + 1); // +1: borde de la isla
+    const z = zoom();
+    const x = -(blur.cfg.winX + r.left) / z - 1, y = -(blur.cfg.winY + r.top) / z - 1; // -1: borde de la isla
     if (x !== blur.x || y !== blur.y) {
       $('backdrop').style.transform = `translate(${x}px, ${y}px)`;
       blur.x = x; blur.y = y;
@@ -1183,6 +1278,8 @@ if (api) {
   api.onLibrary(onLibrary);
   api.onProjects(onProjects);
   api.onAgenda(onAgenda);
+  api.onCategories((l) => { state.categories = l || []; buildShelf(); });
+  api.getCategories().then((l) => { state.categories = l || []; buildShelf(); });
   api.getAgenda().then((ag) => { onAgenda(ag); if (ag) $('notes-text').value = ag.notes || ''; });
   api.onReminder((r) => { state.reminder = { text: `Recordatorio: ${r.text}`, until: Date.now() + 15000 }; render(); setTimeout(render, 15100); });
   api.getProjects().then(onProjects);

@@ -7,11 +7,17 @@ const { spawn } = require('child_process');
 const claudeHooks = require('./hooks');
 
 const HOOK_PORT = claudeHooks.PORT;
-const WIN_W = 940; // deja sitio al panel lateral que se despliega a la derecha
-const WIN_H = 580;
+const DRAWER_W = 236; // ancho del panel lateral
+const WIN_H_BASE = 640;
+// La ventana es transparente y mayor que la isla: deja sitio a ambos lados para el panel lateral. Su tamaño
+// depende del ancho elegido para la columna principal y de la escala.
+function winSize() {
+  const z = settings.scale / 100;
+  return { w: Math.round((settings.mainWidth + 2 * (DRAWER_W + 24)) * z), h: Math.round(WIN_H_BASE * z) };
+}
 const AUDIO_SCRIPT = path.join(__dirname, 'scripts', 'audio.ps1').replace('app.asar', 'app.asar.unpacked');
 const APPS_SCRIPT = path.join(__dirname, 'scripts', 'apps.ps1').replace('app.asar', 'app.asar.unpacked');
-const MAX_FAVORITES = 10;
+const MAX_FAVORITES = 30;
 const MEDIA_SCRIPT = path.join(__dirname, 'scripts', 'media.ps1').replace('app.asar', 'app.asar.unpacked');
 
 // Sin empaquetar, el arranque automático debe lanzar electron.exe apuntando a esta carpeta.
@@ -21,7 +27,8 @@ let win = null;
 const DEFAULTS = { blur: true, blurPx: 18, tint: 50, dark: 30, sheen: 60, colorMode: 'auto', color: '#7f8cff', focusMin: 25, breakMin: 5,
   showVolume: true, showActions: true, showFavorites: true, showUsage: true,
   showGames: true, showLaunchers: true, showOffice: true, showProjects: true,
-  showTools: true, showClaude: false, showBrowsers: true };
+  showTools: true, showClaude: false, showBrowsers: true,
+  hideEmptyTabs: true, scale: 100, mainWidth: 420 };
 let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], extraOffice: [], extraTools: [], extraBrowsers: [], hiddenLibrary: [] };
 let settingsWin = null;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
@@ -39,29 +46,90 @@ function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+// Posición: por defecto arriba y al centro de la pantalla principal; si el usuario la arrastró, donde la dejó
+// (settings.pos guarda el centro horizontal de la isla y su borde superior, en coordenadas de pantalla).
 function placeWindow() {
-  const { bounds } = screen.getPrimaryDisplay();
-  win.setBounds({ x: Math.round(bounds.x + (bounds.width - WIN_W) / 2), y: bounds.y, width: WIN_W, height: WIN_H });
+  if (!win || win.isDestroyed()) return;
+  const { w, h } = winSize();
+  let cx;
+  let top;
+  const pos = settings.pos;
+  if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+    const b = screen.getDisplayNearestPoint({ x: Math.round(pos.x), y: Math.round(pos.y) }).bounds; // si esa pantalla ya no está, la más cercana
+    cx = Math.min(b.x + b.width - 100, Math.max(b.x + 100, pos.x));
+    top = Math.min(b.y + b.height - 80, Math.max(b.y, pos.y));
+  } else {
+    const b = screen.getPrimaryDisplay().bounds;
+    cx = b.x + b.width / 2;
+    top = b.y;
+  }
+  win.setBounds({ x: Math.round(cx - w / 2), y: Math.round(top), width: w, height: h });
 }
 
 function createWindow() {
+  const { w, h } = winSize();
   win = new BrowserWindow({
-    width: WIN_W, height: WIN_H,
+    width: w, height: h,
     frame: false, transparent: true, hasShadow: false,
     resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false,
-    skipTaskbar: true, alwaysOnTop: true, focusable: false, show: false,
+    // Es una ventana normal a efectos de foco (así se puede escribir en ella al hacer clic), pero de tipo
+    // "barra de herramientas" para que no aparezca en la barra de tareas ni en Alt+Tab.
+    skipTaskbar: true, alwaysOnTop: true, focusable: true, type: 'toolbar', show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, backgroundThrottling: false },
   });
+  const w0 = win;
   placeWindow();
   win.setAlwaysOnTop(true, 'screen-saver');
   // La ventana es más grande que la isla: los clics la atraviesan salvo cuando el ratón está sobre la isla.
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.showInactive());
-  screen.on('display-metrics-changed', () => { placeWindow(); send('blur-changed'); });
-  win.webContents.on('did-finish-load', () => send('settings', settings));
+  win.once('ready-to-show', () => { if (!w0.isDestroyed()) w0.showInactive(); });
+  win.webContents.on('did-finish-load', () => {
+    send('settings', settings);
+    if (lastMedia) send('media', lastMedia); // tras recrear la ventana, lo que ya estaba sonando
+  });
   applyContentProtection();
 }
+
+// Recrea la ventana desde cero. Es la recuperación más fiable cuando Windows la deja en un estado incoherente
+// (por ejemplo tras la suspensión: se despliega pero los clics la atraviesan).
+let lastRecreate = 0;
+function recreateWindow() {
+  if (Date.now() - lastRecreate < 4000) return;
+  lastRecreate = Date.now();
+  const old = win;
+  createWindow();
+  if (old && !old.isDestroyed()) old.destroy();
+}
+
+// Arrastre: mientras dura, la ventana sigue al cursor; al soltar se guarda la posición.
+let dragTimer = null;
+function endDrag() {
+  if (!dragTimer) return;
+  clearInterval(dragTimer);
+  dragTimer = null;
+  if (!win || win.isDestroyed()) return;
+  const b = win.getBounds();
+  settings.pos = { x: Math.round(b.x + b.width / 2), y: b.y };
+  saveSettings();
+  placeWindow(); // la ajusta a los límites de la pantalla donde quedó
+  send('blur-changed');
+}
+ipcMain.on('drag-start', () => {
+  if (!win || win.isDestroyed()) return;
+  const c = screen.getCursorScreenPoint();
+  const [x, y] = win.getPosition();
+  const off = { dx: c.x - x, dy: c.y - y };
+  const started = Date.now();
+  clearInterval(dragTimer);
+  dragTimer = setInterval(() => {
+    if (!win || win.isDestroyed() || Date.now() - started > 60000) return endDrag();
+    const p = screen.getCursorScreenPoint();
+    win.setPosition(p.x - off.dx, p.y - off.dy);
+  }, 16);
+});
+ipcMain.on('drag-end', endDrag);
+ipcMain.on('pos-reset', () => { settings.pos = null; saveSettings(); placeWindow(); send('blur-changed'); });
 
 // ---------- Desenfoque ----------
 // Electron no puede difuminar el escritorio detrás de una ventana transparente con forma libre.
@@ -73,7 +141,7 @@ function applyContentProtection() {
 
 ipcMain.handle('blur-config', async () => {
   if (!settings.blur) return { enabled: false };
-  const display = screen.getPrimaryDisplay();
+  const display = screen.getDisplayMatching(win.getBounds()); // la pantalla donde está la isla
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
   const source = sources.find((s) => s.display_id === String(display.id)) || sources[0];
   if (!source) return { enabled: false };
@@ -91,6 +159,8 @@ function ps(args) {
     { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
 }
 
+let lastMedia = null;
+const mediaThumbs = new Map();
 let lastMediaError = '';
 function logMediaError(msg) {
   if (msg === lastMediaError) return;
@@ -113,6 +183,13 @@ function startMediaWatcher() {
       try {
         const d = JSON.parse(line);
         for (const s of d.sessions || []) if (s.thumbError) logMediaError(s.thumbError);
+        // Se guarda el último estado con sus carátulas (que solo llegan al cambiar de canción).
+        for (const x of d.sessions || []) {
+          const key = `${x.id}|${x.title}|${x.artist}`;
+          if ('thumb' in x) mediaThumbs.set(key, x.thumb || null);
+        }
+        lastMedia = { ...d, sessions: (d.sessions || []).map((x) => ({ ...x, trackChanged: true, thumb: mediaThumbs.get(`${x.id}|${x.title}|${x.artist}`) || null })) };
+        if (mediaThumbs.size > 40) mediaThumbs.clear();
         send('media', d);
       } catch { /* línea incompleta */ }
     }
@@ -128,14 +205,6 @@ ipcMain.on('media-control', (_e, action, target) => {
   ps(args);
 });
 
-// La isla no toma el foco del teclado salvo mientras se escribe en su buscador.
-ipcMain.on('set-focusable', (_e, on) => {
-  if (!win || win.isDestroyed()) return;
-  win.setFocusable(!!on);
-  win.setSkipTaskbar(true);
-  win.setAlwaysOnTop(true, 'screen-saver');
-  if (on) { win.focus(); win.webContents.focus(); } else { win.blur(); }
-});
 ipcMain.on('set-interactive', (_e, on) => {
   if (!win || win.isDestroyed()) return;
   if (on) win.setIgnoreMouseEvents(false);
@@ -145,22 +214,18 @@ ipcMain.on('set-interactive', (_e, on) => {
 // Al volver de la suspensión o del bloqueo, Windows puede dejar la ventana en un estado incoherente (se
 // despliega pero los clics la atraviesan). Se restablece todo: posición, primer plano y paso de clics, y
 // se pide a la isla que se pliegue para que vuelva a sincronizarse al pasar el ratón.
-function recoverWindow() {
-  if (!win || win.isDestroyed()) return;
-  placeWindow();
-  win.setFocusable(false);
-  win.setSkipTaskbar(true);
-  win.setAlwaysOnTop(true, 'screen-saver');
-  win.setIgnoreMouseEvents(false);
-  win.setIgnoreMouseEvents(true, { forward: true });
-  if (!win.isVisible()) win.showInactive();
-  send('reset-interaction');
-  send('blur-changed'); // la captura de pantalla del desenfoque también se corta al suspender
-}
 function watchPower() {
-  for (const ev of ['resume', 'unlock-screen']) {
-    powerMonitor.on(ev, () => { setTimeout(recoverWindow, 1500); setTimeout(recoverWindow, 6000); }); // el segundo intento cubre equipos lentos al despertar
-  }
+  const recover = () => { setTimeout(recreateWindow, 1500); };
+  for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, recover);
+  // Algunos equipos (suspensión moderna) no avisan al reanudar: se detecta por el salto en el reloj.
+  let lastTick = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    if (now - lastTick > 45000) recover();
+    lastTick = now;
+  }, 10000);
+  screen.on('display-metrics-changed', () => { placeWindow(); send('blur-changed'); });
+  screen.on('display-removed', () => { placeWindow(); send('blur-changed'); });
 }
 
 // ---------- Volumen y micrófono (ayudante de PowerShell; las órdenes van por un socket local) ----------
@@ -619,6 +684,83 @@ ipcMain.on('office-open-pin', (_e, kind, index) => {
   if (p) shell.openPath(p.path);
 });
 
+// ---------- Categorías propias: pestañas creadas por el usuario ----------
+function categories() {
+  if (!Array.isArray(settings.categories)) settings.categories = [];
+  return settings.categories;
+}
+const findCategory = (id) => categories().find((c) => c.id === id);
+async function publicCategories() {
+  return Promise.all(categories().map(async (c) => ({
+    id: c.id, name: c.name,
+    items: await Promise.all(c.items.map(async (it) => ({ name: it.name, detail: it.path || it.appId || '', icon: it.icon || (it.path ? await fileIcon(it.path) : null) }))),
+  })));
+}
+async function categoriesChanged() {
+  saveSettings();
+  const list = await publicCategories();
+  send('categories', list);
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('categories', list);
+  return list;
+}
+ipcMain.handle('categories-get', publicCategories);
+ipcMain.handle('category-create', () => {
+  if (categories().length < 8) categories().push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: 'Categoría nueva', items: [] });
+  return categoriesChanged();
+});
+ipcMain.on('category-rename', (_e, id, name) => {
+  const c = findCategory(id);
+  if (!c || typeof name !== 'string') return;
+  c.name = name.trim().slice(0, 18) || 'Categoría';
+  categoriesChanged();
+});
+ipcMain.on('category-delete', (_e, id) => { settings.categories = categories().filter((c) => c.id !== id); categoriesChanged(); });
+ipcMain.handle('category-add-app', (_e, id, appId) => {
+  const c = findCategory(id);
+  const a = appsCache && appsCache[appId];
+  if (c && a && c.items.length < 40 && !c.items.some((x) => (a.appId ? x.appId === a.appId : x.path === a.path))) {
+    c.items.push(a.appId ? { name: a.name, appId: a.appId, icon: a.icon } : { name: a.name, path: a.path });
+  }
+  return categoriesChanged();
+});
+ipcMain.on('category-remove-item', (_e, id, index) => {
+  const c = findCategory(id);
+  if (!c || !Number.isInteger(index) || !c.items[index]) return;
+  c.items.splice(index, 1);
+  categoriesChanged();
+});
+ipcMain.on('category-open', (_e, id, index) => {
+  const c = findCategory(id);
+  if (c && c.items[index]) launchEntry(c.items[index]);
+});
+
+// Accesos directos, programas o carpetas soltados sobre la isla o sobre la configuración.
+// target: 'favorites', un tipo de pestaña (games, launchers, office, tools, browsers) o 'cat:<id>'.
+ipcMain.handle('drop-paths', async (_e, paths, target) => {
+  if (!Array.isArray(paths) || typeof target !== 'string') return 0;
+  let added = 0;
+  const key = extraKey(target);
+  const cat = target.startsWith('cat:') ? findCategory(target.slice(4)) : null;
+  for (const p of paths.slice(0, 20)) {
+    if (typeof p !== 'string' || !p || !fs.existsSync(p)) continue;
+    const name = path.basename(p).replace(/\.(lnk|exe|url|bat|cmd)$/i, '') || p;
+    if (target === 'favorites') {
+      if (settings.favorites.length >= MAX_FAVORITES || settings.favorites.some((f) => f.path === p)) continue;
+      settings.favorites.push({ name, path: p });
+    } else if (key) {
+      if (settings[key].some((x) => x.path === p)) continue;
+      settings[key].push({ name, path: p, icon: await fileIcon(p) });
+    } else if (cat) {
+      if (cat.items.length >= 40 || cat.items.some((x) => x.path === p)) continue;
+      cat.items.push({ name, path: p });
+    } else continue;
+    added++;
+  }
+  if (!added) return 0;
+  if (target === 'favorites') { saveSettings(); await broadcastFavorites(); } else if (key) rebuildManual(); else await categoriesChanged();
+  return added;
+});
+
 // ---------- Agenda: eventos, recordatorios y notas rápidas ----------
 let agenda = { events: [], notes: '', tasks: [] };
 const agendaFile = () => path.join(app.getPath('userData'), 'agenda.json');
@@ -1029,15 +1171,19 @@ ipcMain.handle('claude-usage-set', (_e, on) => ({ ...claudeHooks.setUsage(!!on),
 ipcMain.handle('settings-get', () => ({ ...settings, openAtLogin: app.getLoginItemSettings(LOGIN).openAtLogin }));
 ipcMain.on('settings-set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return;
-  if (patch.reset) patch = { ...DEFAULTS };
+  if (patch.reset) { patch = { ...DEFAULTS }; settings.pos = null; }
   if ('openAtLogin' in patch) app.setLoginItemSettings({ ...LOGIN, openAtLogin: !!patch.openAtLogin });
   const blurBefore = settings.blur;
+  const geoBefore = `${settings.scale}|${settings.mainWidth}`;
   for (const k of Object.keys(DEFAULTS)) {
     if (k in patch && typeof patch[k] === typeof DEFAULTS[k]) settings[k] = patch[k];
   }
   saveSettings();
   send('settings', settings);
+  settings.scale = Math.min(150, Math.max(70, Math.round(settings.scale)));
+  settings.mainWidth = Math.min(640, Math.max(380, Math.round(settings.mainWidth)));
   if (settings.blur !== blurBefore) { applyContentProtection(); send('blur-changed'); }
+  if (`${settings.scale}|${settings.mainWidth}` !== geoBefore) { placeWindow(); send('blur-changed'); }
 });
 
 // ---------- Actualizaciones (solo en la versión instalada; las publica GitHub Releases) ----------
@@ -1088,6 +1234,7 @@ function buildTrayMenu() {
     ...(updateReady ? [{ label: `Reiniciar para actualizar a ${updateReady.version}`, click: () => updateReady.install() }, { type: 'separator' }] : []),
     { label: 'Mostrar / ocultar', click: () => (win.isVisible() ? win.hide() : win.showInactive()) },
     { label: 'Configuración…', click: () => openSettings() },
+    { label: 'Reiniciar isla', click: () => { app.isQuitting = true; app.relaunch(); app.exit(0); } },
     { type: 'separator' },
     { label: `Versión ${app.getVersion()}`, enabled: false },
     ...(app.isPackaged && !updateReady ? [{ label: 'Buscar actualizaciones', click: () => { checkForUpdates(); openSettings('sistema'); } }] : []),

@@ -1,7 +1,7 @@
 const api = window.islandAPI;
 const $ = (id) => document.getElementById(id);
-const UNITS = { tint: '%', dark: '%', sheen: '%', blurPx: ' px' };
-const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage', 'showGames', 'showLaunchers', 'showOffice', 'showProjects', 'showTools', 'showClaude', 'showBrowsers'];
+const UNITS = { tint: '%', dark: '%', sheen: '%', blurPx: ' px', scale: '%', mainWidth: ' px' };
+const FIELDS = ['tint', 'dark', 'sheen', 'blur', 'blurPx', 'colorMode', 'color', 'focusMin', 'breakMin', 'openAtLogin', 'showVolume', 'showActions', 'showFavorites', 'showUsage', 'showGames', 'showLaunchers', 'showOffice', 'showProjects', 'showTools', 'showClaude', 'showBrowsers', 'hideEmptyTabs', 'scale', 'mainWidth'];
 
 function show(s) {
   for (const k of FIELDS) {
@@ -52,7 +52,7 @@ function showFavorites(list) {
     row.append(icon, name, del);
     box.append(row);
   });
-  const full = list.length >= 10;
+  const full = list.length >= 30;
   $('fav-add-app').disabled = $('fav-add-file').disabled = $('fav-add-folder').disabled = full;
   favorites = list;
   renderApps();
@@ -66,7 +66,7 @@ const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,
 function renderApps() {
   if ($('picker').hidden || !apps) return;
   const q = norm($('app-search').value.trim());
-  const full = pickerTarget === 'favorites' && favorites.length >= 10;
+  const full = pickerTarget === 'favorites' && favorites.length >= 30;
   const box = $('app-list');
   box.textContent = '';
   const shown = apps.filter((a) => !q || norm(a.name).includes(q));
@@ -83,6 +83,11 @@ function renderApps() {
     b.disabled = added || full;
     b.onclick = async () => {
       if (pickerTarget === 'favorites') return api.addFavoriteApp(a.id);
+      if (pickerTarget.startsWith('cat:')) {
+        await api.addCategoryApp(pickerTarget.slice(4), a.id);
+        $('picker').hidden = true;
+        return;
+      }
       if (pickerTarget.startsWith('project:')) {
         await api.addProjectItem(pickerTarget.slice(8), 'app', a.id);
         $('picker').hidden = true;
@@ -95,7 +100,7 @@ function renderApps() {
   }
   const status = $('app-status');
   status.hidden = shown.length > 0 && !full;
-  status.textContent = full ? 'Ya tienes 10 favoritas: quita alguna para añadir más.'
+  status.textContent = full ? 'Ya tienes 30 favoritas: quita alguna para añadir más.'
     : apps.length ? 'Ninguna aplicación coincide con la búsqueda.' : 'No se encontraron aplicaciones. Usa "Examinar…" para elegir una a mano.';
 }
 async function loadApps(force) {
@@ -156,6 +161,84 @@ $('lib-refresh').onclick = async () => {
   $('lib-refresh').disabled = false;
   $('lib-refresh').textContent = 'Volver a buscar';
 };
+// ---------- Tamaño y posición ----------
+$('pos-reset').onclick = () => api.resetPosition();
+
+// ---------- Soltar accesos directos en la configuración ----------
+function dropZone(el, target) {
+  el.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; el.classList.add('over'); });
+  el.addEventListener('dragleave', () => el.classList.remove('over'));
+  el.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    el.classList.remove('over');
+    const paths = [...e.dataTransfer.files].map((f) => api.pathForFile(f)).filter(Boolean);
+    if (paths.length) await api.dropPaths(paths, typeof target === 'function' ? target() : target);
+  });
+}
+dropZone($('fav-drop'), 'favorites');
+window.addEventListener('dragover', (e) => e.preventDefault()); // fuera de las zonas no se navega al archivo soltado
+window.addEventListener('drop', (e) => e.preventDefault());
+
+// ---------- Categorías propias ----------
+function showCategories(list) {
+  const box = $('category-list');
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.category : null;
+  box.textContent = '';
+  for (const c of list) {
+    const card = document.createElement('div');
+    card.className = 'project';
+    const head = document.createElement('div');
+    head.className = 'project-head';
+    const name = document.createElement('input');
+    name.value = c.name; name.maxLength = 18; name.dataset.category = c.id;
+    name.setAttribute('aria-label', 'Nombre de la categoría');
+    name.addEventListener('change', () => api.renameCategory(c.id, name.value));
+    const del = document.createElement('button');
+    del.textContent = 'Eliminar';
+    del.onclick = () => api.deleteCategory(c.id);
+    head.append(name, del);
+    const items = document.createElement('div');
+    items.className = 'items';
+    c.items.forEach((it, i) => {
+      const row = document.createElement('div');
+      row.className = 'fav';
+      let icon;
+      if (it.icon) { icon = document.createElement('img'); icon.src = it.icon; icon.alt = ''; }
+      else { icon = document.createElement('span'); icon.className = 'letter'; icon.textContent = (it.name[0] || '?').toUpperCase(); }
+      const n = document.createElement('span');
+      n.className = 'name'; n.textContent = it.name; n.title = it.detail || it.name;
+      const rm = document.createElement('button');
+      rm.textContent = 'Quitar';
+      rm.onclick = () => api.removeCategoryItem(c.id, i);
+      row.append(icon, n, rm);
+      items.append(row);
+    });
+    const add = document.createElement('div');
+    add.className = 'inline';
+    const btn = document.createElement('button');
+    btn.textContent = 'Añadir app…';
+    btn.onclick = () => openPicker(`cat:${c.id}`);
+    add.append(btn);
+    const zone = document.createElement('div');
+    zone.className = 'drop';
+    zone.textContent = 'O arrastra aquí accesos directos, programas o carpetas';
+    dropZone(zone, `cat:${c.id}`);
+    card.append(head, items, add, zone);
+    box.append(card);
+  }
+  $('category-new').disabled = list.length >= 8;
+  if (focused) { const el = box.querySelector(`input[data-category="${focused}"]`); if (el) { el.focus(); if (el.value === 'Categoría nueva') el.select(); } }
+}
+$('category-new').onclick = async () => {
+  const list = await api.createCategory();
+  showCategories(list);
+  const last = list[list.length - 1];
+  const el = last && $('category-list').querySelector(`input[data-category="${last.id}"]`);
+  if (el) { el.focus(); el.select(); }
+};
+api.onCategories(showCategories);
+api.getCategories().then(showCategories);
+
 // ---------- Proyectos ----------
 const TYPE_LABEL = { file: 'Archivo', folder: 'Carpeta', app: 'App', url: 'Web' };
 function showProjects(list) {
