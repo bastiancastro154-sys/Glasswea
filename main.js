@@ -620,12 +620,12 @@ ipcMain.on('office-open-pin', (_e, kind, index) => {
 });
 
 // ---------- Agenda: eventos, recordatorios y notas rápidas ----------
-let agenda = { events: [], notes: '' };
+let agenda = { events: [], notes: '', tasks: [] };
 const agendaFile = () => path.join(app.getPath('userData'), 'agenda.json');
 function loadAgenda() {
   try {
     const d = JSON.parse(fs.readFileSync(agendaFile(), 'utf8'));
-    agenda = { events: Array.isArray(d.events) ? d.events : [], notes: typeof d.notes === 'string' ? d.notes : '' };
+    agenda = { events: Array.isArray(d.events) ? d.events : [], notes: typeof d.notes === 'string' ? d.notes : '', tasks: Array.isArray(d.tasks) ? d.tasks : [] };
   } catch { /* primera vez */ }
 }
 function saveAgenda() { try { fs.writeFileSync(agendaFile(), JSON.stringify(agenda)); } catch { /* sin permisos */ } }
@@ -661,6 +661,27 @@ ipcMain.handle('agenda-add', (_e, item) => {
 });
 ipcMain.handle('agenda-remove', (_e, id) => {
   agenda.events = agenda.events.filter((e) => e.id !== id);
+  saveAgenda();
+  return agenda;
+});
+
+// Tareas al estilo del Bullet Journal: cada una guarda cuándo se registró, su fecha de inicio y cuándo se
+// completó. Mientras siga abierta aparece en todos los días desde su inicio (la "migración" es automática).
+ipcMain.handle('task-add', (_e, item) => {
+  if (!item || typeof item !== 'object' || agenda.tasks.length >= 2000) return agenda;
+  const text = typeof item.text === 'string' ? item.text.trim().slice(0, 120) : '';
+  if (!text || typeof item.start !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(item.start)) return agenda;
+  agenda.tasks.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, text, created: Date.now(), start: item.start, done: null });
+  saveAgenda();
+  return agenda;
+});
+ipcMain.handle('task-toggle', (_e, id) => {
+  const t = agenda.tasks.find((x) => x.id === id);
+  if (t) { t.done = t.done ? null : Date.now(); saveAgenda(); }
+  return agenda;
+});
+ipcMain.handle('task-remove', (_e, id) => {
+  agenda.tasks = agenda.tasks.filter((t) => t.id !== id);
   saveAgenda();
   return agenda;
 });

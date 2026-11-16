@@ -415,3 +415,22 @@ button svg { width: 18px; height: 18px; fill: currentColor; filter: drop-shadow(
 
 /* Acciones del desplegable de un navegador (abrir dirección, buscar en la web) */
 #favorites .r-item.action .r-name { font-style: italic; opacity: .9; }
+
+/* ---------- Tareas (Bullet Journal) ---------- */
+.bujo { width: 18px; height: 18px; flex: none; border-radius: 5px; font: 700 13px/1 "Segoe UI", system-ui, sans-serif; }
+.bujo:hover { background: rgba(255, 255, 255, .22); }
+.ag-item.task .ag-text, .up-item.task .ag-text { cursor: default; }
+.ag-item.task.done .ag-text { text-decoration: line-through; opacity: .55; }
+.ag-item.task.done .bujo { color: #7be3a4; }
+.ag-item.task.carried .bujo { color: #ffd166; }
+.ag-track { flex: none; font-size: 10.5px; opacity: .6; font-variant-numeric: tabular-nums; }
+.ag-item.task.done .ag-track { opacity: .5; }
+.up-row { display: flex; align-items: center; gap: 6px; height: 24px; border-radius: 6px; padding-left: 2px; font-size: 11.5px; }
+.up-row:hover { background: rgba(255, 255, 255, .1); }
+.up-row .up-open { flex: 1; min-width: 0; width: auto; height: 24px; border-radius: 6px; background: none; padding: 0; display: flex; align-items: center; gap: 8px; font: inherit; text-align: left; }
+.up-row .up-day { flex: none; width: 96px; white-space: nowrap; opacity: .7; }
+#upcoming-more { float: right; text-transform: none; letter-spacing: 0; }
+.ag-item .bujo { opacity: 1 !important; width: 18px; height: 18px; font-size: 13px; }
+.up-row .ag-kind { flex: none; display: grid; place-items: center; }
+.up-row .ag-kind i { width: 6px; height: 6px; border-radius: 50%; background: #fff; opacity: .8; }
+.up-row .ag-kind svg { width: 11px; height: 11px; fill: #ffd166; }

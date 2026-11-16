@@ -35,7 +35,7 @@ const state = {
   updateVersion: '',
   favorites: [],
   library: { games: [], launchers: [], office: [], tools: [], browsers: [] },
-  agenda: { events: [], notes: '' },
+  agenda: { events: [], notes: '', tasks: [] },
   reminder: { text: '', until: 0 },
   projects: [],
 };
@@ -288,7 +288,7 @@ function buildCalendar() {
   const first = new Date(cal.year, cal.month, 1);
   const month = first.toLocaleDateString('es', { month: 'long' });
   $('cal-title').textContent = `${month[0].toUpperCase()}${month.slice(1)} ${cal.year}`;
-  const marked = new Set(state.agenda.events.map((e) => e.date));
+  const marked = new Set([...state.agenda.events.map((e) => e.date), ...state.agenda.tasks.map((t) => t.start)]);
   const grid = $('cal-grid');
   grid.textContent = '';
   for (const d of ['L', 'M', 'X', 'J', 'V', 'S', 'D']) {
@@ -367,33 +367,114 @@ function kindIcon(type) {
   k.innerHTML = type === 'reminder' ? ICONS.bell : '<i></i>';
   return k;
 }
-// Resumen de lo próximo en la columna principal (solo lectura; un clic lleva a ese día).
+// ---------- Tareas al estilo Bullet Journal ----------
+// Una tarea aparece en cada día desde su inicio hasta el día en que se completa. Símbolos: • empieza ese día,
+// > viene arrastrada de días anteriores, × se completó ese día.
+const dayNumber = (key) => { const [y, m, d] = key.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); };
+const shortDate = (key) => { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('es', { day: 'numeric', month: 'short' }).replace(/\./g, ''); };
+const doneKey = (t) => (t.done ? dateKey(new Date(t.done)) : null);
+function tasksOn(key) {
+  return state.agenda.tasks.filter((t) => t.start <= key && (!t.done || doneKey(t) >= key))
+    .sort((a, b) => a.start.localeCompare(b.start) || a.created - b.created);
+}
+function taskStatus(t, key) {
+  if (t.done && doneKey(t) <= key) return 'done';
+  return t.start === key ? 'new' : 'carried';
+}
+function taskTooltip(t, key) {
+  const lines = [t.text, `Registrada: ${new Date(t.created).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, `Inicio: ${shortDate(t.start)}`];
+  if (t.done) {
+    const span = dayNumber(doneKey(t)) - dayNumber(t.start) + 1;
+    lines.push(`Completada: ${shortDate(doneKey(t))} (${span} día${span === 1 ? '' : 's'})`);
+  } else {
+    const open = dayNumber(key) - dayNumber(t.start) + 1;
+    lines.push(`Pendiente · día ${open}`);
+  }
+  return lines.join('\n');
+}
+function taskBullet(t, key) {
+  const status = taskStatus(t, key);
+  const b = document.createElement('button');
+  b.className = 'bujo';
+  b.textContent = status === 'done' ? '×' : status === 'carried' ? '>' : '•';
+  b.title = status === 'done' ? 'Completada · clic para reabrir' : 'Marcar como completada';
+  b.onclick = async (ev) => { ev.stopPropagation(); onAgenda(await api.toggleTask(t.id)); };
+  return b;
+}
+function taskRow(t, key) {
+  const status = taskStatus(t, key);
+  const row = document.createElement('div');
+  row.className = `ag-item task ${status}`;
+  row.title = taskTooltip(t, key);
+  const text = document.createElement('span');
+  text.className = 'ag-text'; text.textContent = t.text;
+  const track = document.createElement('span');
+  track.className = 'ag-track';
+  const span = dayNumber(status === 'done' ? doneKey(t) : key) - dayNumber(t.start) + 1;
+  track.textContent = status === 'done' ? `hecha · ${span} d` : status === 'carried' ? `día ${span}` : 'nueva';
+  const del = document.createElement('button');
+  del.textContent = '×'; del.title = 'Eliminar tarea';
+  del.onclick = async () => onAgenda(await api.removeTask(t.id));
+  row.append(taskBullet(t, key), text, track, del);
+  return row;
+}
+
+// Resumen en la columna principal: primero las tareas pendientes de hoy (se pueden completar ahí mismo) y
+// después lo próximo del calendario. Un clic lleva a ese día.
 function renderUpcoming() {
   const today = dateKey(new Date());
-  const next = state.agenda.events.filter((e) => e.date >= today)
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '99').localeCompare(b.time || '99')).slice(0, 3);
+  const pending = state.agenda.tasks.filter((t) => !t.done && t.start <= today).sort((a, b) => a.start.localeCompare(b.start) || a.created - b.created);
+  const events = state.agenda.events.filter((e) => e.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '99').localeCompare(b.time || '99'));
+  const all = [...pending.map((t) => ({ task: t })), ...events.map((e) => ({ event: e }))];
   const list = $('upcoming-list');
   list.textContent = '';
-  if (!next.length) {
+  const title = $('upcoming-title');
+  title.textContent = 'Pendientes y próximos';
+  if (pending.length) {
+    const more = document.createElement('span');
+    more.id = 'upcoming-more';
+    more.textContent = `${pending.length} tarea${pending.length === 1 ? '' : 's'} pendiente${pending.length === 1 ? '' : 's'}`;
+    title.append(more);
+  }
+  if (!all.length) {
     const p = document.createElement('div');
     p.className = 'up-empty';
-    p.textContent = 'Nada próximo. Haz doble clic en una fecha del calendario para anotar un evento, un aviso o una nota.';
+    p.textContent = 'Nada pendiente. Haz doble clic en una fecha del calendario para anotar un evento, un aviso, una nota o una tarea.';
     list.append(p);
   }
-  for (const e of next) {
-    const [y, m, d] = e.date.split('-').map(Number);
-    const b = document.createElement('button');
-    b.className = 'up-item';
-    b.title = `${KIND_LABEL[e.type] || 'Evento'}${e.time ? ` · ${e.time}` : ''}\n${e.text}`;
+  const goTo = (key) => { const [y, m] = key.split('-').map(Number); cal.year = y; cal.month = m - 1; selectedDate = key; if (drawerTab !== 'cal') showDrawerTab('cal'); buildCalendar(); showDayView(true); };
+  for (const it of all.slice(0, 3)) {
+    const row = document.createElement('div');
+    row.className = 'up-row';
+    const open = document.createElement('button');
+    open.className = 'up-open';
     const day = document.createElement('span');
     day.className = 'up-day';
-    const label = e.date === today ? 'hoy' : new Date(y, m - 1, d).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
-    day.textContent = e.time ? `${label} ${e.time}` : label;
     const text = document.createElement('span');
-    text.className = 'ag-text'; text.textContent = e.text;
-    b.append(kindIcon(e.type), day, text);
-    b.onclick = () => { cal.year = y; cal.month = m - 1; selectedDate = e.date; if (drawerTab !== 'cal') showDrawerTab('cal'); buildCalendar(); showDayView(true); };
-    list.append(b);
+    text.className = 'ag-text';
+    if (it.task) {
+      const t = it.task;
+      const n = dayNumber(today) - dayNumber(t.start) + 1;
+      row.title = taskTooltip(t, today);
+      day.textContent = n === 1 ? 'desde hoy' : `día ${n} · ${shortDate(t.start)}`;
+      text.textContent = t.text;
+      open.append(day, text);
+      open.onclick = () => goTo(today);
+      row.append(taskBullet(t, today), open);
+    } else {
+      const e = it.event;
+      row.title = `${KIND_LABEL[e.type] || 'Evento'}${e.time ? ` · ${e.time}` : ''}\n${e.text}`;
+      const label = e.date === today ? 'hoy' : shortDate(e.date);
+      day.textContent = e.time ? `${label} ${e.time}` : label;
+      text.textContent = e.text;
+      open.append(day, text);
+      open.onclick = () => goTo(e.date);
+      const k = kindIcon(e.type);
+      k.style.width = '18px';
+      row.append(k, open);
+    }
+    list.append(row);
   }
 }
 function renderAgenda() {
@@ -417,20 +498,22 @@ function renderAgenda() {
     row.append(kind, ...(e.time ? [time] : []), text, del);
     list.append(row);
   }
-  $('ag-text').placeholder = { event: 'Nuevo evento…', reminder: 'Nuevo aviso…', note: 'Nueva nota…' }[agendaType];
-  $('ag-time').disabled = agendaType === 'note';
+  for (const t of tasksOn(selectedDate)) list.append(taskRow(t, selectedDate));
+  $('ag-text').placeholder = { event: 'Nuevo evento…', reminder: 'Nuevo aviso…', note: 'Nueva nota…', task: 'Nueva tarea…' }[agendaType];
+  $('ag-time').disabled = agendaType === 'note' || agendaType === 'task';
   renderUpcoming();
   document.querySelectorAll('#agenda-form .seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.type === agendaType)));
 }
 function onAgenda(a) {
   if (!a) return;
-  state.agenda = { events: a.events || [], notes: a.notes || '' };
+  state.agenda = { events: a.events || [], notes: a.notes || '', tasks: a.tasks || [] };
   buildCalendar();
 }
 async function addAgendaItem() {
   const text = $('ag-text').value.trim();
   if (!text || !api) return;
-  const next = await api.addAgenda({ date: selectedDate, time: $('ag-time').value, text, type: agendaType });
+  const next = agendaType === 'task' ? await api.addTask({ text, start: selectedDate })
+    : await api.addAgenda({ date: selectedDate, time: $('ag-time').value, text, type: agendaType });
   $('ag-text').value = '';
   $('ag-time').value = '';
   onAgenda(next);
