@@ -52,7 +52,7 @@ contextBridge.exposeInMainWorld('islandAPI', {
   addAgenda: (item) => ipcRenderer.invoke('agenda-add', item),
   removeAgenda: (id) => ipcRenderer.invoke('agenda-remove', id),
   addTask: (item) => ipcRenderer.invoke('task-add', item),
-  toggleTask: (id) => ipcRenderer.invoke('task-toggle', id),
+  toggleTask: (id, occ) => ipcRenderer.invoke('task-toggle', id, occ),
   removeTask: (id) => ipcRenderer.invoke('task-remove', id),
   setNotes: (text) => ipcRenderer.send('notes-set', text),
   onAgenda: (cb) => ipcRenderer.on('agenda', (_e, a) => cb(a)),

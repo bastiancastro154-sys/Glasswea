@@ -1,5 +1,6 @@
 # Lee todas las sesiones multimedia de Windows (Spotify, navegador, etc.) y las emite como JSON por línea.
 # Con -Action toggle|next|prev actúa sobre la sesión indicada en -Target (o la actual si no se indica).
+# Con -Action focus trae al frente la ventana de la app que reproduce esa sesión.
 # Requiere Windows PowerShell 5.1 (powershell.exe), que trae la proyección de WinRT.
 param([string]$Action = 'watch', [string]$Target = '')
 
@@ -48,6 +49,32 @@ if ($Action -ne 'watch') {
         foreach ($e in (Get-Sessions)) { if ($e.id -eq $Target) { $s = $e.session; break } }
     }
     if (-not $s) { $s = $manager.GetCurrentSession() }
+    if ($s -and $Action -eq 'focus') {
+        $src = [string]$s.SourceAppUserModelId
+        $done = $false
+        if ($src -notlike '*!*') {
+            # App de escritorio: el identificador suele ser el nombre del ejecutable (Spotify.exe, chrome.exe, MSEdge…).
+            $known = @{ '308046B0AF4A39CB' = 'firefox'; 'MSEdge' = 'msedge'; 'Chrome' = 'chrome' }
+            $name = if ($known.ContainsKey($src)) { $known[$src] } else { [System.IO.Path]::GetFileNameWithoutExtension(($src -split '[\\/]')[-1]) }
+            $proc = Get-Process -Name $name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            if ($proc) {
+                Add-Type -Namespace GlassWin -Name Native -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+[DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+'@
+                $h = $proc.MainWindowHandle
+                if ([GlassWin.Native]::IsIconic($h)) { $null = [GlassWin.Native]::ShowWindowAsync($h, 9) }  # 9 = restaurar
+                $null = [GlassWin.Native]::SetForegroundWindow($h)
+                $done = $true
+            }
+        }
+        if (-not $done) {
+            # App de la Tienda (o no se encontró su ventana): activarla por su identificador la trae al frente.
+            try { Start-Process ("shell:AppsFolder\" + $src) } catch { }
+        }
+        exit 0
+    }
     if ($s) {
         switch ($Action) {
             'toggle' { $null = Await ($s.TryTogglePlayPauseAsync()) ([bool]) }

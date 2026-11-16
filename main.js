@@ -199,7 +199,7 @@ function startMediaWatcher() {
 
 ipcMain.on('media-control', (_e, action, target) => {
   if (process.platform !== 'win32') return;
-  if (!['toggle', 'next', 'prev'].includes(action)) return;
+  if (!['toggle', 'next', 'prev', 'focus'].includes(action)) return;
   const args = ['-Action', action];
   if (typeof target === 'string' && target && target.length < 300) args.push('-Target', target); // reproductor concreto
   ps(args);
@@ -813,13 +813,24 @@ ipcMain.handle('task-add', (_e, item) => {
   if (!item || typeof item !== 'object' || agenda.tasks.length >= 2000) return agenda;
   const text = typeof item.text === 'string' ? item.text.trim().slice(0, 120) : '';
   if (!text || typeof item.start !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(item.start)) return agenda;
-  agenda.tasks.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, text, created: Date.now(), start: item.start, done: null });
+  // repeat: '' (una sola vez), 'daily', 'weekdays', 'weekly' o 'monthly'. Las repetitivas guardan en doneMap
+  // cuándo se completó cada repetición (clave: la fecha de esa repetición).
+  const repeat = ['daily', 'weekdays', 'weekly', 'monthly'].includes(item.repeat) ? item.repeat : '';
+  agenda.tasks.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, text, created: Date.now(), start: item.start, done: null, repeat, doneMap: {} });
   saveAgenda();
   return agenda;
 });
-ipcMain.handle('task-toggle', (_e, id) => {
+ipcMain.handle('task-toggle', (_e, id, occ) => {
   const t = agenda.tasks.find((x) => x.id === id);
-  if (t) { t.done = t.done ? null : Date.now(); saveAgenda(); }
+  if (!t) return agenda;
+  if (t.repeat) {
+    if (typeof occ !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(occ)) return agenda;
+    if (!t.doneMap || typeof t.doneMap !== 'object') t.doneMap = {};
+    if (t.doneMap[occ]) delete t.doneMap[occ]; else t.doneMap[occ] = Date.now();
+  } else {
+    t.done = t.done ? null : Date.now();
+  }
+  saveAgenda();
   return agenda;
 });
 ipcMain.handle('task-remove', (_e, id) => {

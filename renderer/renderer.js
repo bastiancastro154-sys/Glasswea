@@ -173,6 +173,8 @@ function renderExpanded() {
   $('title').textContent = m.active && m.title ? m.title : 'Nada sonando';
   const mApp = appName(m.source);
   $('artist').textContent = m.active && m.title ? [m.artist, mApp].filter(Boolean).join(' · ') || '—' : 'Reproduce algo y aparecerá aquí';
+  const linkable = m.active && !!m.title;
+  for (const id of ['art', 'title']) { $(id).classList.toggle('link', linkable); $(id).title = linkable ? `Abrir ${mApp || 'la app'} donde está sonando` : ''; }
   renderOthers();
   const img = $('art-img');
   if (m.thumb) { if (img.getAttribute('src') !== m.thumb) img.src = m.thumb; } else img.removeAttribute('src');
@@ -291,7 +293,7 @@ function buildCalendar() {
   const first = new Date(cal.year, cal.month, 1);
   const month = first.toLocaleDateString('es', { month: 'long' });
   $('cal-title').textContent = `${month[0].toUpperCase()}${month.slice(1)} ${cal.year}`;
-  const marked = new Set([...state.agenda.events.map((e) => e.date), ...state.agenda.tasks.map((t) => t.start)]);
+  const marked = new Set([...state.agenda.events.map((e) => e.date), ...state.agenda.tasks.filter((t) => !t.repeat).map((t) => t.start)]);
   const grid = $('cal-grid');
   grid.textContent = '';
   for (const d of ['L', 'M', 'X', 'J', 'V', 'S', 'D']) {
@@ -373,52 +375,91 @@ function kindIcon(type) {
 // ---------- Tareas al estilo Bullet Journal ----------
 // Una tarea aparece en cada día desde su inicio hasta el día en que se completa. Símbolos: • empieza ese día,
 // > viene arrastrada de días anteriores, × se completó ese día.
+// Las repetitivas (cada día, laborables, cada semana, cada mes) generan una repetición por periodo: solo cuenta
+// la más reciente, que sigue pendiente hasta completarla o hasta que llegue la siguiente.
 const dayNumber = (key) => { const [y, m, d] = key.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); };
+const keyOfNumber = (n) => { const d = new Date(n * 86400000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
 const shortDate = (key) => { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('es', { day: 'numeric', month: 'short' }).replace(/\./g, ''); };
-const doneKey = (t) => (t.done ? dateKey(new Date(t.done)) : null);
-function tasksOn(key) {
-  return state.agenda.tasks.filter((t) => t.start <= key && (!t.done || doneKey(t) >= key))
-    .sort((a, b) => a.start.localeCompare(b.start) || a.created - b.created);
-}
-function taskStatus(t, key) {
-  if (t.done && doneKey(t) <= key) return 'done';
-  return t.start === key ? 'new' : 'carried';
-}
-function taskTooltip(t, key) {
-  const lines = [t.text, `Registrada: ${new Date(t.created).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, `Inicio: ${shortDate(t.start)}`];
-  if (t.done) {
-    const span = dayNumber(doneKey(t)) - dayNumber(t.start) + 1;
-    lines.push(`Completada: ${shortDate(doneKey(t))} (${span} día${span === 1 ? '' : 's'})`);
-  } else {
-    const open = dayNumber(key) - dayNumber(t.start) + 1;
-    lines.push(`Pendiente · día ${open}`);
+const REPEAT_LABEL = { daily: 'cada día', weekdays: 'días laborables', weekly: 'cada semana', monthly: 'cada mes' };
+// Fecha de la repetición vigente en el día dado (la última que toca en o antes de ese día), o null si aún no empieza.
+function occurrenceOn(t, key) {
+  if (key < t.start) return null;
+  if (!t.repeat) return t.start;
+  const n = dayNumber(key);
+  const s0 = dayNumber(t.start);
+  if (t.repeat === 'daily') return key;
+  if (t.repeat === 'weekly') return keyOfNumber(s0 + Math.floor((n - s0) / 7) * 7);
+  if (t.repeat === 'weekdays') {
+    for (let x = n; x >= s0; x--) { const wd = new Date(x * 86400000).getUTCDay(); if (wd >= 1 && wd <= 5) return keyOfNumber(x); }
+    return null;
   }
+  // mensual: el mismo día del mes que el inicio (o el último día si ese mes es más corto)
+  const [sy, sm, sd] = t.start.split('-').map(Number);
+  const [ky, km] = key.split('-').map(Number);
+  for (let back = 0; back <= 1; back++) {
+    const first = new Date(Date.UTC(ky, km - 1 - back, 1));
+    const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+    const occ = `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(sd, last)).padStart(2, '0')}`;
+    if (occ <= key && occ >= t.start) return occ;
+  }
+  return sy && sm ? t.start : null;
+}
+// Estado de una tarea en un día: null (no se muestra) o { status: 'new'|'carried'|'done', occ, span, doneAt }.
+function taskState(t, key) {
+  const occ = occurrenceOn(t, key);
+  if (!occ) return null;
+  const doneAt = t.repeat ? (t.doneMap || {})[occ] || null : t.done;
+  const doneDay = doneAt ? dateKey(new Date(doneAt)) : null;
+  if (doneDay && key > doneDay) return null;                    // ya se completó antes de ese día
+  if (doneDay && key === doneDay) return { status: 'done', occ, doneAt, span: dayNumber(doneDay) - dayNumber(occ) + 1 };
+  return { status: key === occ ? 'new' : 'carried', occ, doneAt: null, span: dayNumber(key) - dayNumber(occ) + 1 };
+}
+function tasksOn(key) {
+  return state.agenda.tasks.map((t) => ({ t, st: taskState(t, key) })).filter((x) => x.st)
+    .sort((a, b) => a.st.occ.localeCompare(b.st.occ) || a.t.created - b.t.created);
+}
+function taskTooltip(t, st) {
+  const lines = [t.text, `Registrada: ${new Date(t.created).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, `Inicio: ${shortDate(t.start)}`];
+  if (t.repeat) {
+    lines.push(`Se repite: ${REPEAT_LABEL[t.repeat]} · esta repetición es del ${shortDate(st.occ)}`);
+    const times = Object.keys(t.doneMap || {}).length;
+    if (times) lines.push(`Completada ${times} ${times === 1 ? 'vez' : 'veces'}`);
+  }
+  if (st.status === 'done') lines.push(`Completada: ${shortDate(dateKey(new Date(st.doneAt)))} (${st.span} día${st.span === 1 ? '' : 's'})`);
+  else lines.push(`Pendiente · día ${st.span}`);
   return lines.join('\n');
 }
-function taskBullet(t, key) {
-  const status = taskStatus(t, key);
+function taskMark(st) {
+  const m = document.createElement('span');
+  m.className = 'bujo-mark';
+  m.textContent = st.status === 'done' ? '×' : st.status === 'carried' ? '>' : '•';
+  return m;
+}
+// Botón de completar: un círculo que se rellena con la marca. No se puede completar una repetición futura.
+function taskCheck(t, st) {
   const b = document.createElement('button');
-  b.className = 'bujo';
-  b.textContent = status === 'done' ? '×' : status === 'carried' ? '>' : '•';
-  b.title = status === 'done' ? 'Completada · clic para reabrir' : 'Marcar como completada';
-  b.onclick = async (ev) => { ev.stopPropagation(); onAgenda(await api.toggleTask(t.id)); };
+  const done = st.status === 'done';
+  b.className = `check${done ? ' on' : ''}`;
+  b.textContent = '✓';
+  b.title = done ? 'Completada · clic para reabrir' : 'Marcar como completada';
+  b.setAttribute('aria-pressed', String(done));
+  if (!done && st.occ > dateKey(new Date())) { b.disabled = true; b.title = 'Aún no toca: no se puede completar por adelantado'; }
+  b.onclick = async (ev) => { ev.stopPropagation(); onAgenda(await api.toggleTask(t.id, st.occ)); };
   return b;
 }
-function taskRow(t, key) {
-  const status = taskStatus(t, key);
+function taskRow({ t, st }) {
   const row = document.createElement('div');
-  row.className = `ag-item task ${status}`;
-  row.title = taskTooltip(t, key);
+  row.className = `ag-item task ${st.status}`;
+  row.title = taskTooltip(t, st);
   const text = document.createElement('span');
   text.className = 'ag-text'; text.textContent = t.text;
   const track = document.createElement('span');
   track.className = 'ag-track';
-  const span = dayNumber(status === 'done' ? doneKey(t) : key) - dayNumber(t.start) + 1;
-  track.textContent = status === 'done' ? `hecha · ${span} d` : status === 'carried' ? `día ${span}` : 'nueva';
+  track.textContent = (t.repeat ? '↻ ' : '') + (st.status === 'done' ? `hecha · ${st.span} d` : st.status === 'carried' ? `día ${st.span}` : 'nueva');
   const del = document.createElement('button');
-  del.textContent = '×'; del.title = 'Eliminar tarea';
+  del.textContent = '×'; del.title = t.repeat ? 'Eliminar la tarea y todas sus repeticiones' : 'Eliminar tarea';
   del.onclick = async () => onAgenda(await api.removeTask(t.id));
-  row.append(taskBullet(t, key), text, track, del);
+  row.append(taskMark(st), text, track, taskCheck(t, st), del);
   return row;
 }
 
@@ -426,7 +467,7 @@ function taskRow(t, key) {
 // que aún no han saltado. Un clic lleva a ese día.
 function renderUpcoming() {
   const today = dateKey(new Date());
-  const pending = state.agenda.tasks.filter((t) => !t.done && t.start <= today).sort((a, b) => a.start.localeCompare(b.start) || a.created - b.created);
+  const pending = tasksOn(today).filter((x) => x.st.status !== 'done');
   const reminders = state.agenda.events.filter((e) => e.type === 'reminder' && !e.notified && e.date >= today)
     .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '09:00').localeCompare(b.time || '09:00'));
   const all = [...pending.map((t) => ({ task: t })), ...reminders.map((e) => ({ event: e }))];
@@ -458,14 +499,14 @@ function renderUpcoming() {
     const text = document.createElement('span');
     text.className = 'ag-text';
     if (it.task) {
-      const t = it.task;
-      const n = dayNumber(today) - dayNumber(t.start) + 1;
-      row.title = taskTooltip(t, today);
-      day.textContent = n === 1 ? 'desde hoy' : `día ${n} · ${shortDate(t.start)}`;
+      const { t, st } = it.task;
+      row.title = taskTooltip(t, st);
+      if (st.status === 'carried') row.classList.add('carried');
+      day.textContent = (t.repeat ? '↻ ' : '') + (st.span === 1 ? 'desde hoy' : `día ${st.span} · ${shortDate(st.occ)}`);
       text.textContent = t.text;
       open.append(day, text);
       open.onclick = () => goTo(today);
-      row.append(taskBullet(t, today), open);
+      row.append(taskMark(st), open, taskCheck(t, st));
     } else {
       const e = it.event;
       row.title = `Recordatorio · ${e.time || '09:00'}\n${e.text}`;
@@ -503,9 +544,11 @@ function renderAgenda() {
     row.append(kind, ...(e.time ? [time] : []), text, del);
     list.append(row);
   }
-  for (const t of tasksOn(selectedDate)) list.append(taskRow(t, selectedDate));
+  for (const x of tasksOn(selectedDate)) list.append(taskRow(x));
   $('ag-text').placeholder = { event: 'Nuevo evento…', reminder: 'Nuevo aviso…', note: 'Nueva nota…', task: 'Nueva tarea…' }[agendaType];
-  $('ag-time').disabled = agendaType === 'note' || agendaType === 'task';
+  $('ag-time').disabled = agendaType === 'note';
+  $('ag-time').hidden = agendaType === 'task'; // las tareas eligen frecuencia en lugar de hora
+  $('ag-repeat').hidden = agendaType !== 'task';
   renderUpcoming();
   document.querySelectorAll('#agenda-form .seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.type === agendaType)));
 }
@@ -517,10 +560,11 @@ function onAgenda(a) {
 async function addAgendaItem() {
   const text = $('ag-text').value.trim();
   if (!text || !api) return;
-  const next = agendaType === 'task' ? await api.addTask({ text, start: selectedDate })
+  const next = agendaType === 'task' ? await api.addTask({ text, start: selectedDate, repeat: $('ag-repeat').value })
     : await api.addAgenda({ date: selectedDate, time: $('ag-time').value, text, type: agendaType });
   $('ag-text').value = '';
   $('ag-time').value = '';
+  $('ag-repeat').value = '';
   onAgenda(next);
 }
 $('ag-add').onclick = addAgendaItem;
@@ -661,6 +705,10 @@ document.querySelectorAll('[data-media]').forEach((b) => {
   b.onclick = () => { if (state.music.active) mediaAction(state.music, b.dataset.media); };
 });
 
+// Clic en la carátula o el título: trae al frente la app donde está sonando.
+for (const id of ['art', 'title']) {
+  $(id).addEventListener('click', () => { if (state.music.active && state.music.id) (api ? api.mediaControl : demo.mediaControl)('focus', state.music.id); });
+}
 let othersKey = '';
 function renderOthers() {
   const others = state.sessions.filter((s) => s !== state.music).slice(0, 3);
@@ -1238,7 +1286,7 @@ const demo = {
     onMedia({ active: true, title: t.title, artist: t.artist, playing, position: 0, duration: t.duration, thumb: this.cover(t.hue), trackChanged: true });
   },
   mediaControl(a) {
-    if (a === 'toggle') return;
+    if (a === 'toggle' || a === 'focus') return;
     demo.i = (demo.i + (a === 'next' ? 1 : demo.tracks.length - 1)) % demo.tracks.length;
     demo.load(state.music.playing);
   },

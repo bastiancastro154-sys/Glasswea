@@ -120,6 +120,13 @@
           <input id="ag-text" type="text" maxlength="120" placeholder="Nuevo evento…" aria-label="Texto">
           <div id="ag-row">
             <input id="ag-time" type="time" aria-label="Hora (opcional)" title="Hora (opcional)">
+            <select id="ag-repeat" aria-label="Frecuencia de la tarea" hidden>
+              <option value="">No se repite</option>
+              <option value="daily">Cada día</option>
+              <option value="weekdays">Días laborables</option>
+              <option value="weekly">Cada semana</option>
+              <option value="monthly">Cada mes</option>
+            </select>
             <button id="ag-add">Añadir</button>
           </div>
         </div>
