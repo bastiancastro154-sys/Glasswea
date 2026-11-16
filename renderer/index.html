@@ -70,18 +70,9 @@
       <div id="favorites"></div>
     </div>
 
-    <div id="agenda">
-      <div id="agenda-date"></div>
-      <div id="agenda-list"></div>
-      <div id="agenda-form">
-        <input id="ag-text" type="text" maxlength="120" placeholder="Nuevo evento…" aria-label="Texto del evento">
-        <input id="ag-time" type="time" aria-label="Hora (opcional)" title="Hora (opcional)">
-        <div class="seg" role="group" aria-label="Tipo">
-          <button data-type="event" aria-pressed="true">Evento</button>
-          <button data-type="reminder" aria-pressed="false" title="Avisa a su hora (o a las 9:00 si no tiene)">Recordatorio</button>
-        </div>
-        <button id="ag-add">Añadir</button>
-      </div>
+    <div id="upcoming">
+      <div id="upcoming-title">Próximos</div>
+      <div id="upcoming-list"></div>
     </div>
   </div>
   <div id="drawer">
@@ -102,13 +93,34 @@
       <button data-dtab="notes" role="tab" aria-selected="false">Notas</button>
     </div>
     <div id="calendar">
-      <div id="cal-head">
-        <span id="cal-title"></span>
-        <button id="cal-prev" title="Mes anterior"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7 1.5-1.5L11 12l5.5-5.5z"/></svg></button>
-        <button id="cal-today" title="Volver a hoy">Hoy</button>
-        <button id="cal-next" title="Mes siguiente"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7-1.5-1.5L13 12 7.5 6.5z"/></svg></button>
+      <div id="month-view">
+        <div id="cal-head">
+          <span id="cal-title"></span>
+          <button id="cal-prev" title="Mes anterior"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7 1.5-1.5L11 12l5.5-5.5z"/></svg></button>
+          <button id="cal-today" title="Volver a hoy">Hoy</button>
+          <button id="cal-next" title="Mes siguiente"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7-1.5-1.5L13 12 7.5 6.5z"/></svg></button>
+        </div>
+        <div id="cal-grid"></div>
       </div>
-      <div id="cal-grid"></div>
+      <div id="day-view" hidden>
+        <div id="day-head">
+          <button id="day-back" title="Volver al calendario">‹</button>
+          <span id="agenda-date"></span>
+        </div>
+        <div id="agenda-list"></div>
+        <div id="agenda-form">
+          <div class="seg" role="group" aria-label="Tipo">
+            <button data-type="event" aria-pressed="true">Evento</button>
+            <button data-type="reminder" aria-pressed="false" title="Avisa a su hora (o a las 9:00 si no tiene)">Aviso</button>
+            <button data-type="note" aria-pressed="false" title="Una nota para ese día, sin hora">Nota</button>
+          </div>
+          <input id="ag-text" type="text" maxlength="120" placeholder="Nuevo evento…" aria-label="Texto">
+          <div id="ag-row">
+            <input id="ag-time" type="time" aria-label="Hora (opcional)" title="Hora (opcional)">
+            <button id="ag-add">Añadir</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="notes" hidden>
       <textarea id="notes-text" maxlength="20000" placeholder="Notas rápidas… se guardan solas" aria-label="Notas rápidas"></textarea>

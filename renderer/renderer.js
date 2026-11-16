@@ -258,7 +258,7 @@ function render() {
   renderExpanded();
   $('drawer-handle').classList.toggle('running', state.timer.running);
   $('drawer-handle').title = state.timer.running ? `Enfoque y calendario · quedan ${fmt(timerRemaining())}` : 'Enfoque y calendario';
-  $('agenda').hidden = !drawerOpen; // la agenda acompaña al calendario del panel lateral
+  $('upcoming').hidden = !drawerOpen; // el resumen acompaña al calendario del panel lateral
   if (state.hover) {
     // Con el panel lateral abierto la isla crece hacia la derecha: se desplaza la mitad de lo que crece
     // para que el borde izquierdo no se mueva.
@@ -342,13 +342,59 @@ let agendaType = 'event';
 function eventsOn(key) {
   return state.agenda.events.filter((e) => e.date === key).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
 }
-function selectDate(key, focusInput) {
+// Un clic marca la fecha; el doble clic despliega su vista de día (lo anotado y el formulario) en el lugar del mes.
+function selectDate(key, openDay) {
   selectedDate = key;
   // Solo se mueve la marca: reconstruir la rejilla entre los dos clics impediría detectar el doble clic.
   document.querySelectorAll('#cal-grid .day').forEach((d) => d.classList.toggle('sel', d.dataset.date === key));
   renderAgenda();
+  if (openDay) showDayView(true);
   render();
-  if (focusInput) $('ag-text').focus();
+}
+function showDayView(on) {
+  const day = $('day-view');
+  if (on && day.hidden) day.style.minHeight = `${$('month-view').offsetHeight}px`; // mismo alto que el mes: la isla no salta
+  $('month-view').hidden = on;
+  day.hidden = !on;
+  render();
+  if (on) $('ag-text').focus();
+}
+$('day-back').onclick = () => showDayView(false);
+const KIND_LABEL = { event: 'Evento', reminder: 'Aviso', note: 'Nota' };
+function kindIcon(type) {
+  const k = document.createElement('span');
+  k.className = `ag-kind ${type}`;
+  k.innerHTML = type === 'reminder' ? ICONS.bell : '<i></i>';
+  return k;
+}
+// Resumen de lo próximo en la columna principal (solo lectura; un clic lleva a ese día).
+function renderUpcoming() {
+  const today = dateKey(new Date());
+  const next = state.agenda.events.filter((e) => e.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '99').localeCompare(b.time || '99')).slice(0, 3);
+  const list = $('upcoming-list');
+  list.textContent = '';
+  if (!next.length) {
+    const p = document.createElement('div');
+    p.className = 'up-empty';
+    p.textContent = 'Nada próximo. Haz doble clic en una fecha del calendario para anotar un evento, un aviso o una nota.';
+    list.append(p);
+  }
+  for (const e of next) {
+    const [y, m, d] = e.date.split('-').map(Number);
+    const b = document.createElement('button');
+    b.className = 'up-item';
+    b.title = `${KIND_LABEL[e.type] || 'Evento'}${e.time ? ` · ${e.time}` : ''}\n${e.text}`;
+    const day = document.createElement('span');
+    day.className = 'up-day';
+    const label = e.date === today ? 'hoy' : new Date(y, m - 1, d).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
+    day.textContent = e.time ? `${label} ${e.time}` : label;
+    const text = document.createElement('span');
+    text.className = 'ag-text'; text.textContent = e.text;
+    b.append(kindIcon(e.type), day, text);
+    b.onclick = () => { cal.year = y; cal.month = m - 1; selectedDate = e.date; if (drawerTab !== 'cal') showDrawerTab('cal'); buildCalendar(); showDayView(true); };
+    list.append(b);
+  }
 }
 function renderAgenda() {
   const [y, m, d] = selectedDate.split('-').map(Number);
@@ -359,10 +405,8 @@ function renderAgenda() {
   for (const e of eventsOn(selectedDate)) {
     const row = document.createElement('div');
     row.className = 'ag-item';
-    row.title = `${e.type === 'reminder' ? 'Recordatorio' : 'Evento'}${e.time ? ` · ${e.time}` : ''}\n${e.text}`;
-    const kind = document.createElement('span');
-    kind.className = 'ag-kind';
-    kind.innerHTML = e.type === 'reminder' ? ICONS.bell : '<i></i>';
+    row.title = `${KIND_LABEL[e.type] || 'Evento'}${e.time ? ` · ${e.time}` : ''}\n${e.text}`;
+    const kind = kindIcon(e.type);
     const time = document.createElement('span');
     time.className = 'ag-time'; time.textContent = e.time || '';
     const text = document.createElement('span');
@@ -373,7 +417,9 @@ function renderAgenda() {
     row.append(kind, ...(e.time ? [time] : []), text, del);
     list.append(row);
   }
-  $('ag-text').placeholder = agendaType === 'reminder' ? 'Nuevo recordatorio…' : 'Nuevo evento…';
+  $('ag-text').placeholder = { event: 'Nuevo evento…', reminder: 'Nuevo aviso…', note: 'Nueva nota…' }[agendaType];
+  $('ag-time').disabled = agendaType === 'note';
+  renderUpcoming();
   document.querySelectorAll('#agenda-form .seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.type === agendaType)));
 }
 function onAgenda(a) {
@@ -395,6 +441,7 @@ $('ag-time').addEventListener('keydown', (e) => { if (e.key === 'Enter') addAgen
 document.querySelectorAll('#agenda-form .seg button').forEach((b) => { b.onclick = () => { agendaType = b.dataset.type; renderAgenda(); }; });
 $('cal-grid').addEventListener('click', (e) => { const d = e.target.closest('.day'); if (d) selectDate(d.dataset.date, e.detail >= 2); });
 $('cal-grid').addEventListener('dblclick', (e) => { const d = e.target.closest('.day'); if (d) selectDate(d.dataset.date, true); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('day-view').hidden && !isTextField(document.activeElement)) showDayView(false); });
 
 // ---------- Notas rápidas ----------
 let drawerTab = 'cal';

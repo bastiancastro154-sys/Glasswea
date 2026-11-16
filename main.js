@@ -652,7 +652,8 @@ ipcMain.handle('agenda-add', (_e, item) => {
   const okDate = typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date);
   const time = typeof item.time === 'string' && /^\d{2}:\d{2}$/.test(item.time) ? item.time : '';
   if (!text || !okDate) return agenda;
-  const ev = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, date: item.date, time, text, type: item.type === 'reminder' ? 'reminder' : 'event' };
+  const ev = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, date: item.date, time, text, type: ['reminder', 'note'].includes(item.type) ? item.type : 'event' };
+  if (ev.type === 'note') ev.time = '';
   if (ev.type === 'reminder' && dueTime(ev) <= Date.now()) ev.notified = true; // creado ya en el pasado: no avisar
   agenda.events.push(ev);
   saveAgenda();
