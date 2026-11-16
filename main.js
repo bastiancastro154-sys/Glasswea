@@ -21,13 +21,13 @@ let win = null;
 const DEFAULTS = { blur: true, blurPx: 18, tint: 50, dark: 30, sheen: 60, colorMode: 'auto', color: '#7f8cff', focusMin: 25, breakMin: 5,
   showVolume: true, showActions: true, showFavorites: true, showUsage: true,
   showGames: true, showLaunchers: true, showOffice: true, showProjects: true,
-  showTools: true, showClaude: false };
-let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], extraOffice: [], extraTools: [], hiddenLibrary: [] };
+  showTools: true, showClaude: false, showBrowsers: true };
+let settings = { ...DEFAULTS, favorites: [], extraGames: [], extraLaunchers: [], extraOffice: [], extraTools: [], extraBrowsers: [], hiddenLibrary: [] };
 let settingsWin = null;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() {
   try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* primera vez */ }
-  for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'extraOffice', 'extraTools', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
+  for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'extraOffice', 'extraTools', 'extraBrowsers', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
 }
 function saveSettings() { try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* sin permisos */ } }
 let tray = null;
@@ -348,7 +348,7 @@ ipcMain.on('favorite-open', (_e, index) => {
 // instaladas. En ambos casos se pueden añadir entradas a mano y ocultar las detectadas.
 const LAUNCHERS = /^(steam|epic games launcher|ea|ea app|ea desktop|origin|ubisoft connect|battle\.net|gog galaxy|riot client|xbox|rockstar games launcher|amazon games|itch|playnite|heroic games launcher|geforce now|nvidia geforce now|minecraft launcher|bethesda\.net launcher)$/i;
 const NOT_A_GAME = /steamworks|redistributable|proton|steam linux runtime|steamvr|soundtrack|dedicated server/i;
-let library = { games: [], launchers: [], office: [], tools: [] };
+let library = { games: [], launchers: [], office: [], tools: [], browsers: [] };
 
 // Utilidades: herramientas de Windows y navegadores. Se buscan por nombre entre las apps instaladas (para usar su
 // icono real); las del sistema que no aparezcan ahí se lanzan por su ejecutable.
@@ -379,11 +379,133 @@ async function scanTools(apps) {
     const exe = t.root ? path.join(process.env.SystemRoot || 'C:\\Windows', t.exe) : path.join(sys32, t.exe);
     if (fs.existsSync(exe)) out.push({ id: `tool:${t.label}`, name: t.label, source: 'Sistema', icon: await fileIcon(exe), launch: { path: exe } });
   }
-  for (const a of apps.filter((x) => BROWSERS.test(x.name.trim()))) {
-    out.push({ id: `app:${a.appId || a.path}`, name: a.name, source: 'Navegador', icon: a.icon, launch: a.appId ? { appId: a.appId } : { path: a.path } });
-  }
   return out;
 }
+
+// ---------- Navegadores: marcadores y sitios fijados ----------
+// Los navegadores basados en Chromium guardan sus marcadores en un archivo JSON legible. De Firefox no se leen.
+const expandEnv = (p) => p.replace(/%([^%]+)%/g, (_m, v) => process.env[v] || '');
+const BROWSER_DEFS = [
+  { key: 'chrome', re: /^(google )?chrome$/i, data: '%LOCALAPPDATA%\\Google\\Chrome\\User Data',
+    exe: ['%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe', '%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe', '%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe'] },
+  { key: 'edge', re: /^(microsoft )?edge$/i, data: '%LOCALAPPDATA%\\Microsoft\\Edge\\User Data',
+    exe: ['%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe', '%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe'] },
+  { key: 'brave', re: /^brave( browser)?$/i, data: '%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data',
+    exe: ['%ProgramFiles%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe', '%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'] },
+  { key: 'operagx', re: /^(navegador )?opera gx( browser)?$/i, data: '%APPDATA%\\Opera Software\\Opera GX Stable', flat: true,
+    exe: ['%LOCALAPPDATA%\\Programs\\Opera GX\\opera.exe'] },
+  { key: 'opera', re: /^(navegador )?opera( browser)?$/i, data: '%APPDATA%\\Opera Software\\Opera Stable', flat: true,
+    exe: ['%LOCALAPPDATA%\\Programs\\Opera\\opera.exe'] },
+  { key: 'vivaldi', re: /^vivaldi$/i, data: '%LOCALAPPDATA%\\Vivaldi\\User Data', exe: ['%LOCALAPPDATA%\\Vivaldi\\Application\\vivaldi.exe'] },
+  { key: 'comet', re: /^comet$/i, data: '%LOCALAPPDATA%\\Perplexity\\Comet\\User Data', exe: ['%LOCALAPPDATA%\\Perplexity\\Comet\\Application\\comet.exe'] },
+  { key: 'firefox', re: /^(mozilla )?firefox$/i, data: null, exe: ['%ProgramFiles%\\Mozilla Firefox\\firefox.exe', '%ProgramFiles(x86)%\\Mozilla Firefox\\firefox.exe'] },
+];
+function scanBrowsers(apps) {
+  return apps.filter((x) => BROWSERS.test(x.name.trim())).map((a) => {
+    const def = BROWSER_DEFS.find((d) => d.re.test(a.name.trim()));
+    let exe = def ? def.exe.map(expandEnv).find((p) => fs.existsSync(p)) || null : null;
+    if (!exe && a.path && process.platform === 'win32') { // sin ruta conocida: la del acceso directo
+      try { const t = shell.readShortcutLink(a.path).target; if (t && /\.exe$/i.test(t)) exe = t; } catch { /* no es un acceso directo */ }
+    }
+    return { id: `app:${a.appId || a.path}`, name: a.name, source: '', kind: def ? def.key : 'other', exe, icon: a.icon, launch: a.appId ? { appId: a.appId } : { path: a.path } };
+  });
+}
+const isWebUrl = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
+const bookmarkCache = new Map(); // id del navegador -> lista de marcadores de la última lectura
+function readBookmarks(kind) {
+  const def = BROWSER_DEFS.find((d) => d.key === kind);
+  if (!def || !def.data) return [];
+  const root = process.env.GLASS_ISLAND_BROWSER_DATA || expandEnv(def.data); // la variable es para pruebas
+  const files = [];
+  if (def.flat) files.push(path.join(root, 'Bookmarks'));
+  else {
+    try {
+      for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+        if (d.isDirectory() && (d.name === 'Default' || /^Profile \d+$/.test(d.name))) files.push(path.join(root, d.name, 'Bookmarks'));
+      }
+    } catch { return []; }
+  }
+  const out = [];
+  const seen = new Set();
+  const walk = (node, folder, bar) => {
+    if (!node || out.length >= 3000) return;
+    if (node.type === 'url') {
+      if (!isWebUrl(node.url) || seen.has(node.url)) return;
+      seen.add(node.url);
+      out.push({ name: String(node.name || node.url).slice(0, 160), url: node.url, folder, bar, used: Number(node.date_last_used) || 0 });
+    } else if (Array.isArray(node.children)) {
+      for (const c of node.children) walk(c, node.name && folder !== null ? (folder ? `${folder} / ${node.name}` : node.name) : '', bar);
+    }
+  };
+  for (const f of files) {
+    try {
+      const roots = JSON.parse(fs.readFileSync(f, 'utf8')).roots || {};
+      walk(roots.bookmark_bar, null, true);
+      walk(roots.other, null, false);
+      walk(roots.synced, null, false);
+    } catch { /* perfil sin marcadores */ }
+  }
+  // Primero los de la barra de marcadores, en su orden; después el resto, los usados más recientemente arriba.
+  return [...out.filter((b) => b.bar), ...out.filter((b) => !b.bar).sort((a, b) => b.used - a.used)];
+}
+function browserPins(key) {
+  if (!settings.browserPins || typeof settings.browserPins !== 'object' || Array.isArray(settings.browserPins)) settings.browserPins = {};
+  if (!Array.isArray(settings.browserPins[key])) settings.browserPins[key] = [];
+  return settings.browserPins[key];
+}
+const findBrowser = (id) => library.browsers.find((b) => b.id === id);
+const pinKey = (b) => (b.kind && b.kind !== 'other' ? b.kind : b.id);
+function browserData(id) {
+  const b = findBrowser(id);
+  if (!b) return { pinned: [], recents: [], bookmarks: false };
+  const marks = readBookmarks(b.kind);
+  bookmarkCache.set(id, marks);
+  const pins = browserPins(pinKey(b));
+  const pinnedUrls = new Set(pins.map((p) => p.url));
+  return {
+    bookmarks: !!(BROWSER_DEFS.find((d) => d.key === b.kind) || {}).data,
+    pinned: pins.map((p, index) => ({ index, name: p.name, where: p.url })),
+    recents: marks.map((m, i) => ({ id: `b:${i}`, name: m.name, where: m.url, folder: m.folder || '' })).filter((m) => !pinnedUrls.has(m.where)),
+  };
+}
+// Convierte lo que se pide abrir o fijar en una dirección web: un marcador, un fijado o texto escrito.
+function resolveBrowserItem(b, item) {
+  if (typeof item === 'string' && item.startsWith('b:')) { const m = (bookmarkCache.get(b.id) || [])[Number(item.slice(2))]; return m ? { name: m.name, url: m.url } : null; }
+  if (typeof item === 'string' && item.startsWith('p:')) { const p = browserPins(pinKey(b))[Number(item.slice(2))]; return p ? { name: p.name, url: p.url } : null; }
+  if (item && typeof item === 'object' && typeof item.text === 'string') {
+    const text = item.text.trim().slice(0, 500);
+    if (!text) return null;
+    if (item.search) return { name: text, url: `https://www.google.com/search?q=${encodeURIComponent(text)}` };
+    try {
+      const u = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+      if (u.protocol === 'http:' || u.protocol === 'https:') return { name: u.hostname.replace(/^www\./, ''), url: u.href };
+    } catch { /* no es una dirección */ }
+  }
+  return null;
+}
+ipcMain.handle('browser-data', (_e, id) => browserData(id));
+ipcMain.on('browser-open', (_e, id, item) => {
+  const b = findBrowser(id);
+  const r = b && resolveBrowserItem(b, item);
+  if (!r || !isWebUrl(r.url)) return;
+  // Se abre en ese navegador concreto; si no se conoce su ejecutable, en el predeterminado.
+  if (b.exe) spawn(b.exe, [r.url], { detached: true, stdio: 'ignore' }).unref();
+  else shell.openExternal(r.url);
+});
+ipcMain.handle('browser-pin', (_e, id, item) => {
+  const b = findBrowser(id);
+  const r = b && resolveBrowserItem(b, item);
+  if (r && isWebUrl(r.url)) {
+    const pins = browserPins(pinKey(b));
+    if (pins.length < 30 && !pins.some((p) => p.url === r.url)) { pins.push(r); saveSettings(); }
+  }
+  return browserData(id);
+});
+ipcMain.handle('browser-unpin', (_e, id, index) => {
+  const b = findBrowser(id);
+  if (b) { const pins = browserPins(pinKey(b)); if (Number.isInteger(index) && pins[index]) { pins.splice(index, 1); saveSettings(); } }
+  return browserData(id);
+});
 
 // Office: cada app se reconoce por nombre y lleva asociadas las extensiones de sus documentos.
 const OFFICE_APPS = [
@@ -710,11 +832,12 @@ const manualEntries = (list, kind) => list.map((e) => ({
 const byName = (a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
 function publicLibrary(all) {
   const strip = (list) => list.filter((e) => all || !e.hidden).map(({ launch, ...rest }) => rest);
-  return { games: strip(library.games), launchers: strip(library.launchers), office: strip(library.office), tools: strip(library.tools) };
+  const strip2 = (list) => strip(list).map(({ exe, ...rest }) => rest);
+  return { games: strip(library.games), launchers: strip(library.launchers), office: strip(library.office), tools: strip(library.tools), browsers: strip2(library.browsers) };
 }
 function broadcastLibrary() {
   const hidden = new Set(settings.hiddenLibrary);
-  for (const e of [...library.games, ...library.launchers, ...library.office, ...library.tools]) e.hidden = hidden.has(e.id);
+  for (const e of [...library.games, ...library.launchers, ...library.office, ...library.tools, ...library.browsers]) e.hidden = hidden.has(e.id);
   send('library', publicLibrary(false));
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('library', publicLibrary(true));
 }
@@ -732,6 +855,7 @@ function refreshLibrary(force) {
       launchers: [...detected, ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName),
       office: [...officeApps, ...manualEntries(settings.extraOffice, 'office')].sort(byName),
       tools: [...await scanTools(apps), ...manualEntries(settings.extraTools, 'tools')], // en orden de utilidad, no alfabético
+      browsers: [...scanBrowsers(apps), ...manualBrowsers()].sort(byName),
     };
     broadcastLibrary();
   })().finally(() => { libraryScan = null; });
@@ -742,14 +866,24 @@ function rebuildManual() { // tras añadir o quitar a mano no hace falta volver 
   library.launchers = [...library.launchers.filter((e) => !e.manual), ...manualEntries(settings.extraLaunchers, 'launchers')].sort(byName);
   library.office = [...library.office.filter((e) => !e.manual), ...manualEntries(settings.extraOffice, 'office')].sort(byName);
   library.tools = [...library.tools.filter((e) => !e.manual), ...manualEntries(settings.extraTools, 'tools')];
+  library.browsers = [...library.browsers.filter((e) => !e.manual), ...manualBrowsers()].sort(byName);
   saveSettings();
   broadcastLibrary();
 }
-const extraKey = (kind) => ({ games: 'extraGames', launchers: 'extraLaunchers', office: 'extraOffice', tools: 'extraTools' }[kind] || null);
+const extraKey = (kind) => ({ games: 'extraGames', launchers: 'extraLaunchers', office: 'extraOffice', tools: 'extraTools', browsers: 'extraBrowsers' }[kind] || null);
+function manualBrowsers() { // añadidos a mano: sin marcadores, pero con sitios fijados
+  return manualEntries(settings.extraBrowsers, 'browsers').map((e) => {
+    let exe = null;
+    if (e.launch.path && process.platform === 'win32') {
+      try { const t = shell.readShortcutLink(e.launch.path).target; if (t && /\.exe$/i.test(t)) exe = t; } catch { if (/\.exe$/i.test(e.launch.path)) exe = e.launch.path; }
+    }
+    return { ...e, kind: 'other', exe };
+  });
+}
 ipcMain.handle('library-get', (e) => publicLibrary(!!settingsWin && !settingsWin.isDestroyed() && e.sender === settingsWin.webContents));
 ipcMain.handle('library-refresh', () => refreshLibrary(true));
 ipcMain.on('library-open', (_e, id) => {
-  const entry = [...library.games, ...library.launchers, ...library.office, ...library.tools].find((x) => x.id === id);
+  const entry = [...library.games, ...library.launchers, ...library.office, ...library.tools, ...library.browsers].find((x) => x.id === id);
   if (entry) launchEntry(entry.launch);
 });
 ipcMain.on('library-hide', (_e, id, hide) => {
@@ -768,7 +902,7 @@ ipcMain.handle('library-add', async (_e, kind, appId) => {
   rebuildManual();
 });
 ipcMain.on('library-remove', (_e, id) => {
-  const m = typeof id === 'string' && id.match(/^manual:(games|launchers|office|tools):(.*)$/s);
+  const m = typeof id === 'string' && id.match(/^manual:(games|launchers|office|tools|browsers):(.*)$/s);
   if (!m) return;
   const key = extraKey(m[1]);
   settings[key] = settings[key].filter((x) => (x.appId || x.path) !== m[2]);

@@ -34,7 +34,7 @@ const state = {
   updateNoteUntil: 0,
   updateVersion: '',
   favorites: [],
-  library: { games: [], launchers: [], office: [], tools: [] },
+  library: { games: [], launchers: [], office: [], tools: [], browsers: [] },
   agenda: { events: [], notes: '' },
   reminder: { text: '', until: 0 },
   projects: [],
@@ -654,6 +654,7 @@ const TABS = [
   { id: 'games', label: 'Juegos', setting: 'showGames', empty: 'No se encontraron juegos · añadir', section: 'juegos' },
   { id: 'launchers', label: 'Launchers', setting: 'showLaunchers', empty: 'No se encontraron launchers · añadir', section: 'juegos' },
   { id: 'office', label: 'Office', setting: 'showOffice', empty: 'No se encontraron apps de Office · añadir', section: 'office' },
+  { id: 'browsers', label: 'Web', title: 'Navegadores', setting: 'showBrowsers', empty: 'No se encontraron navegadores · añadir', section: 'navegadores' },
   { id: 'tools', label: 'Utilidades', setting: 'showTools', empty: 'No se encontraron utilidades · añadir', section: 'utilidades' },
 ];
 const RECENTS_KINDS = new Set(['word', 'excel', 'powerpoint', 'access', 'publisher', 'visio', 'project']);
@@ -673,7 +674,7 @@ function shelfItems(tab) {
   return (state.library[tab] || []).map((e) => ({
     name: e.name, title: e.source ? `${e.name} · ${e.source}` : e.name, icon: e.icon, cover: tab === 'games',
     // Las apps de Office con documentos (Word, Excel…) despliegan sus recientes en lugar de abrirse directamente.
-    open: () => (tab === 'office' && RECENTS_KINDS.has(e.kind) ? openRecents(e) : api?.openLibrary(e.id)),
+    open: () => (tab === 'browsers' ? openRecents(e, 'browser') : tab === 'office' && RECENTS_KINDS.has(e.kind) ? openRecents(e) : api?.openLibrary(e.id)),
   }));
 }
 // Reconstruye las pestañas y sus iconos. Solo se llama cuando cambian los datos, no en cada refresco.
@@ -690,6 +691,7 @@ function buildShelf() {
   for (const t of tabs) {
     const b = document.createElement('button');
     b.textContent = t.label;
+    if (t.title) b.title = t.title;
     b.setAttribute('role', 'tab');
     b.setAttribute('aria-selected', String(t.id === currentTab));
     b.onclick = () => {
@@ -704,8 +706,9 @@ function buildShelf() {
   const box = $('favorites');
   box.textContent = '';
   box.scrollTop = 0;
-  box.classList.toggle('recents', !!officeView && tab.id === 'office');
-  if (officeView && tab.id === 'office') { buildRecents(box); return; }
+  const detail = !!officeView && tab.id === (officeView.mode === 'browser' ? 'browsers' : 'office');
+  box.classList.toggle('recents', detail);
+  if (detail) { buildRecents(box); return; }
   const items = shelfItems(tab.id);
   // Los proyectos son un subgrupo dentro de Office.
   const withProjects = tab.id === 'office' && cfg.showProjects !== false;
@@ -773,10 +776,12 @@ const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M3 5h6l2 2h10v12H3z"/></s
 const ICON_FILE = '<svg viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6zm7 1.5V8h4.5z"/></svg>';
 const fold = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-async function openRecents(entry) {
-  officeView = { entry, data: null, query: '' };
+// El desplegable sirve para dos cosas: documentos de una app de Office y marcadores de un navegador.
+async function openRecents(entry, mode = 'office') {
+  officeView = { entry, mode, data: null, query: '' };
   buildShelf();
-  const data = api ? await api.getOfficeRecents(entry.kind) : { pinned: [], recents: [] };
+  const empty = { pinned: [], recents: [] };
+  const data = !api ? empty : mode === 'browser' ? await api.getBrowserData(entry.id) : await api.getOfficeRecents(entry.kind);
   if (officeView && officeView.entry.id === entry.id) { officeView.data = data; buildShelf(); }
 }
 function setOfficeData(data) {
@@ -789,9 +794,12 @@ function iconButton(cls, title, svg, onclick) {
   b.className = cls; b.title = title; b.innerHTML = svg; b.onclick = onclick;
   return b;
 }
+const looksLikeUrl = (t) => /^https?:\/\//i.test(t) || (/^[^\s]+\.[a-z]{2,}(\/\S*)?$/i.test(t) && !t.includes(' '));
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 function buildRecents(box) {
-  const { entry } = officeView;
+  const { entry, mode } = officeView;
   const kind = entry.kind;
+  const browser = mode === 'browser';
   const head = document.createElement('div');
   head.className = 'r-head';
   const back = document.createElement('button');
@@ -800,23 +808,32 @@ function buildRecents(box) {
   const name = document.createElement('span');
   name.className = 'r-app'; name.textContent = entry.name;
   const search = document.createElement('input');
-  search.type = 'search'; search.id = 'r-search'; search.placeholder = 'Buscar…';
-  search.setAttribute('aria-label', 'Buscar documento');
+  search.type = 'search'; search.id = 'r-search';
+  search.placeholder = browser ? 'Buscar o escribir dirección…' : 'Buscar…';
+  search.setAttribute('aria-label', browser ? 'Buscar marcador o escribir una dirección' : 'Buscar documento');
   search.value = officeView.query;
   search.addEventListener('focus', startTyping);
   search.addEventListener('blur', stopTyping);
   search.addEventListener('input', () => { officeView.query = search.value; fillRecents(); });
   search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && browser) { // abre lo primero de la lista: la dirección escrita, un marcador o la búsqueda
+      const first = $('r-list') && $('r-list').querySelector('.r-open');
+      if (first) first.click();
+      return;
+    }
     if (e.key !== 'Escape') return;
     if (search.value) { search.value = ''; officeView.query = ''; fillRecents(); } else search.blur();
   });
   const launch = document.createElement('button');
   launch.className = 'r-launch'; launch.textContent = 'Abrir app';
   launch.onclick = () => api?.openLibrary(entry.id);
-  head.append(back, name, search,
-    iconButton('r-add', 'Fijar documento…', ICON_FILE, async () => setOfficeData(await api.pinOfficeBrowse(kind, 'file'))),
-    iconButton('r-add', 'Fijar carpeta…', ICON_FOLDER, async () => setOfficeData(await api.pinOfficeBrowse(kind, 'folder'))),
-    launch);
+  head.append(back, name, search);
+  if (!browser) {
+    head.append(
+      iconButton('r-add', 'Fijar documento…', ICON_FILE, async () => setOfficeData(await api.pinOfficeBrowse(kind, 'file'))),
+      iconButton('r-add', 'Fijar carpeta…', ICON_FOLDER, async () => setOfficeData(await api.pinOfficeBrowse(kind, 'folder'))));
+  }
+  head.append(launch);
   const list = document.createElement('div');
   list.className = 'r-list'; list.id = 'r-list';
   box.append(head, list);
@@ -826,11 +843,13 @@ function buildRecents(box) {
 function fillRecents() {
   const list = $('r-list');
   if (!list || !officeView) return;
-  const { entry, data, query } = officeView;
+  const { entry, data, query, mode } = officeView;
   const kind = entry.kind;
+  const browser = mode === 'browser';
   list.textContent = '';
-  const q = fold(query.trim());
-  const match = (it) => !q || fold(it.name).includes(q);
+  const typed = query.trim();
+  const q = fold(typed);
+  const match = (it) => !q || fold(it.name).includes(q) || (browser && fold(it.where || '').includes(q));
   const pinned = data ? data.pinned.filter(match) : [];
   const recents = data ? data.recents.filter(match).slice(0, q ? 60 : 30) : [];
 
@@ -839,24 +858,52 @@ function fillRecents() {
     r.className = 'r-item' + (isPinned ? ' pinned' : '');
     const open = document.createElement('button');
     open.className = 'r-open';
-    open.title = it.where ? `${it.name}\n${it.where}` : it.name;
+    open.title = [it.name, it.where, it.folder ? `Carpeta: ${it.folder}` : ''].filter(Boolean).join('\n');
     const n = document.createElement('span');
     n.className = 'r-name'; n.textContent = it.name;
     const w = document.createElement('span');
-    w.className = 'r-when'; w.textContent = isPinned ? (it.folder ? 'carpeta' : 'fijado') : whenText(it.at);
+    w.className = 'r-when';
+    w.textContent = browser ? hostOf(it.where) : isPinned ? (it.folder ? 'carpeta' : 'fijado') : whenText(it.at);
     open.append(n, w);
-    open.onclick = () => (isPinned ? api?.openOfficePin(kind, it.index) : api?.openOfficeRecent(it.id));
-    const pin = iconButton('r-pin', isPinned ? 'Quitar de fijados' : 'Fijar arriba', ICON_PIN,
-      async () => setOfficeData(isPinned ? await api.unpinOffice(kind, it.index) : await api.pinOfficeRecent(kind, it.id)));
+    const ref = isPinned ? `p:${it.index}` : it.id;
+    open.onclick = () => {
+      if (browser) api?.openBrowserItem(entry.id, ref);
+      else if (isPinned) api?.openOfficePin(kind, it.index);
+      else api?.openOfficeRecent(it.id);
+    };
+    const pin = iconButton('r-pin', isPinned ? 'Quitar de fijados' : 'Fijar arriba', ICON_PIN, async () => {
+      if (browser) setOfficeData(isPinned ? await api.unpinBrowser(entry.id, it.index) : await api.pinBrowserItem(entry.id, ref));
+      else setOfficeData(isPinned ? await api.unpinOffice(kind, it.index) : await api.pinOfficeRecent(kind, it.id));
+    });
     r.append(open, pin);
     return r;
   };
+  // En un navegador, lo escrito también se puede abrir como dirección o buscar en la web.
+  const action = (label, detail, item, canPin) => {
+    const r = document.createElement('div');
+    r.className = 'r-item action';
+    const open = document.createElement('button');
+    open.className = 'r-open';
+    const n = document.createElement('span');
+    n.className = 'r-name'; n.textContent = label;
+    const w = document.createElement('span');
+    w.className = 'r-when'; w.textContent = detail;
+    open.append(n, w);
+    open.onclick = () => api?.openBrowserItem(entry.id, item);
+    r.append(open);
+    if (canPin) r.append(iconButton('r-pin', 'Fijar este sitio', ICON_PIN, async () => { officeView.query = ''; $('r-search').value = ''; setOfficeData(await api.pinBrowserItem(entry.id, item)); }));
+    return r;
+  };
+  if (browser && typed && looksLikeUrl(typed)) list.append(action(`Abrir ${typed}`, 'dirección', { text: typed }, true));
   pinned.forEach((it) => list.append(row(it, true)));
   recents.forEach((it) => list.append(row(it, false)));
-  if (!pinned.length && !recents.length) {
+  if (browser && typed) list.append(action(`Buscar «${typed}» en la web`, 'Google', { text: typed, search: true }, false));
+  if (!list.children.length) {
     const p = document.createElement('div');
     p.className = 'r-empty';
-    p.textContent = !data ? 'Buscando documentos…' : q ? 'Ningún documento coincide' : 'Sin documentos recientes';
+    p.textContent = !data ? 'Buscando…'
+      : browser ? (data.bookmarks ? 'Sin marcadores. Escribe una dirección para abrirla o fijarla.' : 'Escribe una dirección para abrirla o fijarla.')
+      : q ? 'Ningún documento coincide' : 'Sin documentos recientes';
     list.append(p);
   }
   render();
@@ -893,7 +940,7 @@ function onFavorites(list) {
   buildShelf();
 }
 function onLibrary(lib) {
-  state.library = { games: (lib && lib.games) || [], launchers: (lib && lib.launchers) || [], office: (lib && lib.office) || [], tools: (lib && lib.tools) || [] };
+  state.library = { games: (lib && lib.games) || [], launchers: (lib && lib.launchers) || [], office: (lib && lib.office) || [], tools: (lib && lib.tools) || [], browsers: (lib && lib.browsers) || [] };
   buildShelf();
 }
 
