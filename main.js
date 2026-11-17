@@ -15,6 +15,10 @@ function winSize() {
   const z = settings.scale / 100;
   return { w: Math.round((settings.mainWidth + 2 * (DRAWER_W + 24)) * z), h: Math.round(WIN_H_BASE * z) };
 }
+// La ventana ocupa todo el alto útil de la pantalla (es transparente y deja pasar los clics), para que la isla
+// pueda crecer hacia abajo o hacia arriba lo que necesite. geo.anchor es dónde está el borde superior de la isla
+// plegada, medido desde el borde superior de la ventana.
+let geo = { anchor: 0, height: WIN_H_BASE };
 const AUDIO_SCRIPT = path.join(__dirname, 'scripts', 'audio.ps1').replace('app.asar', 'app.asar.unpacked');
 const APPS_SCRIPT = path.join(__dirname, 'scripts', 'apps.ps1').replace('app.asar', 'app.asar.unpacked');
 const MAX_FAVORITES = 30;
@@ -58,20 +62,17 @@ function send(channel, payload) {
 // (settings.pos guarda el centro horizontal de la isla y su borde superior, en coordenadas de pantalla).
 function placeWindow() {
   if (!win || win.isDestroyed()) return;
-  const { w, h } = winSize();
-  let cx;
-  let top;
+  const { w } = winSize();
   const pos = settings.pos;
-  if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
-    const b = screen.getDisplayNearestPoint({ x: Math.round(pos.x), y: Math.round(pos.y) }).bounds; // si esa pantalla ya no está, la más cercana
-    cx = Math.min(b.x + b.width - 100, Math.max(b.x + 100, pos.x));
-    top = Math.min(b.y + b.height - 80, Math.max(b.y, pos.y));
-  } else {
-    const b = screen.getPrimaryDisplay().bounds;
-    cx = b.x + b.width / 2;
-    top = b.y;
-  }
-  win.setBounds({ x: Math.round(cx - w / 2), y: Math.round(top), width: w, height: h });
+  const custom = pos && Number.isFinite(pos.x) && Number.isFinite(pos.y);
+  // Si la pantalla donde se dejó ya no está, la más cercana.
+  const display = custom ? screen.getDisplayNearestPoint({ x: Math.round(pos.x), y: Math.round(pos.y) }) : screen.getPrimaryDisplay();
+  const wa = display.workArea; // sin la barra de tareas
+  const cx = custom ? Math.min(wa.x + wa.width - 100, Math.max(wa.x + 100, pos.x)) : wa.x + wa.width / 2;
+  const anchorY = custom ? Math.min(wa.y + wa.height - 60, Math.max(wa.y, pos.y)) : wa.y;
+  win.setBounds({ x: Math.round(cx - w / 2), y: wa.y, width: w, height: wa.height });
+  geo = { anchor: Math.round(anchorY - wa.y), height: wa.height };
+  send('geometry', geo);
 }
 
 function createWindow() {
@@ -94,6 +95,7 @@ function createWindow() {
   win.once('ready-to-show', () => { if (!w0.isDestroyed()) w0.showInactive(); });
   win.webContents.on('did-finish-load', () => {
     send('settings', settings);
+    send('geometry', geo);
     if (lastMedia) send('media', lastMedia); // tras recrear la ventana, lo que ya estaba sonando
   });
   applyContentProtection();
@@ -118,7 +120,7 @@ function endDrag() {
   dragTimer = null;
   if (!win || win.isDestroyed()) return;
   const b = win.getBounds();
-  settings.pos = { x: Math.round(b.x + b.width / 2), y: b.y };
+  settings.pos = { x: Math.round(b.x + b.width / 2), y: b.y + geo.anchor };
   saveSettings();
   placeWindow(); // la ajusta a los límites de la pantalla donde quedó
   send('blur-changed');

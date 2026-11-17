@@ -269,14 +269,45 @@ function render() {
     island.dataset.mode = 'expanded';
     island.classList.toggle('drawer-open', drawerOpen);
     island.style.width = `${mainWidth() + extra}px`;
-    island.style.height = `${Math.max($('expanded').offsetHeight, drawerOpen ? $('drawer').offsetHeight : 0)}px`;
     island.style.transform = `translateX(calc(-50% + ${extra / 2}px))`;
+    // Crece hacia abajo, o hacia arriba si está en la mitad inferior de la pantalla, sin salirse de ella.
+    const h = fitContent(screenHeight() - 8);
+    const compactTop = anchorTop();
+    const growUp = compactTop + 18 > screenHeight() / 2;
+    const top = growUp ? compactTop + 36 - h : compactTop;
+    island.style.height = `${h}px`;
+    island.style.top = `${Math.max(4, Math.min(top, screenHeight() - h - 4))}px`;
   } else {
     island.dataset.mode = 'compact';
     island.style.width = `${Math.round(compactWidth)}px`;
     island.style.height = '36px';
+    island.style.top = `${anchorTop()}px`;
     island.style.transform = '';
   }
+}
+
+// ---------- Alto de la isla ----------
+// La ventana ocupa el alto útil de la pantalla; geo.anchor indica dónde va la isla plegada (en píxeles de pantalla).
+let geo = null;
+const screenHeight = () => innerHeight / zoom();
+const anchorTop = () => (geo ? geo.anchor / zoom() : 0) + 8;
+// Alto necesario para mostrarlo todo. Si no cabe en la pantalla, se acortan las listas largas (que pasan a
+// desplazarse) empezando por el resumen de tareas y siguiendo por la fila de iconos o el desplegable de documentos.
+function fitContent(avail) {
+  const shelfList = $('favorites').classList.contains('recents') ? $('r-list') : $('favorites');
+  const lists = [$('upcoming-list'), shelfList].filter(Boolean);
+  const scrolls = lists.map((el) => el.scrollTop);
+  for (const el of lists) el.style.maxHeight = '';
+  const need = () => Math.max($('expanded').offsetHeight, drawerOpen ? $('drawer').offsetHeight : 0);
+  let excess = need() - avail;
+  for (const el of lists) {
+    if (excess <= 0) break;
+    if (el.offsetParent === null) continue; // oculta
+    const cut = Math.min(excess, Math.max(0, el.clientHeight - 48));
+    if (cut > 0) { el.style.maxHeight = `${el.clientHeight - cut}px`; excess -= cut; }
+  }
+  lists.forEach((el, i) => { el.scrollTop = scrolls[i]; });
+  return Math.min(need(), avail);
 }
 
 // ---------- Panel lateral: enfoque y calendario ----------
@@ -1449,6 +1480,7 @@ if (api) {
   api.onLibrary(onLibrary);
   api.onProjects(onProjects);
   api.onAgenda(onAgenda);
+  api.onGeometry((g) => { geo = g; blur.x = blur.y = null; render(); });
   api.onCategories((l) => { state.categories = l || []; buildShelf(); });
   api.getCategories().then((l) => { state.categories = l || []; buildShelf(); });
   api.getAgenda().then((ag) => { onAgenda(ag); if (ag) $('notes-text').value = ag.notes || ''; });
