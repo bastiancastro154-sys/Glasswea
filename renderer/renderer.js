@@ -36,7 +36,7 @@ const state = {
   favorites: [],
   library: { games: [], launchers: [], office: [], tools: [], browsers: [] },
   categories: [],
-  agenda: { events: [], notes: '', tasks: [] },
+  agenda: { events: [], notes: '', tasks: [], taskLists: [] },
   reminder: { text: '', until: 0 },
   projects: [],
 };
@@ -419,7 +419,8 @@ function tasksOn(key) {
     .sort((a, b) => a.st.occ.localeCompare(b.st.occ) || a.t.created - b.t.created);
 }
 function taskTooltip(t, st) {
-  const lines = [t.text, `Registrada: ${new Date(t.created).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, `Inicio: ${shortDate(t.start)}`];
+  const l = listOf(t);
+  const lines = [t.text, ...(l ? [`Categoría: ${l.name}`] : []), `Registrada: ${new Date(t.created).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, `Inicio: ${shortDate(t.start)}`];
   if (t.repeat) {
     lines.push(`Se repite: ${REPEAT_LABEL[t.repeat]} · esta repetición es del ${shortDate(st.occ)}`);
     const times = Object.keys(t.doneMap || {}).length;
@@ -427,6 +428,7 @@ function taskTooltip(t, st) {
   }
   if (st.status === 'done') lines.push(`Completada: ${shortDate(dateKey(new Date(st.doneAt)))} (${st.span} día${st.span === 1 ? '' : 's'})`);
   else lines.push(`Pendiente · día ${st.span}`);
+  lines.push('Clic derecho: cambiar de categoría o eliminar');
   return lines.join('\n');
 }
 function taskMark(st) {
@@ -447,6 +449,75 @@ function taskCheck(t, st) {
   b.onclick = async (ev) => { ev.stopPropagation(); onAgenda(await api.toggleTask(t.id, st.occ)); };
   return b;
 }
+// ---------- Categorías de tareas ----------
+const listOf = (t) => (t.list ? state.agenda.taskLists.find((l) => l.id === t.list) : null) || null;
+function paintCategory(row, t) {
+  const l = listOf(t);
+  if (l) { row.dataset.cat = l.id; row.style.setProperty('--cat', l.color); } else { delete row.dataset.cat; }
+  row.addEventListener('contextmenu', (e) => { e.preventDefault(); api?.taskMenu(t.id); }); // mover de categoría o eliminar
+}
+let taskFilter = 'all';
+try { taskFilter = localStorage.getItem('taskFilter') || 'all'; } catch { /* sin almacenamiento */ }
+function setTaskFilter(f) {
+  taskFilter = f;
+  try { localStorage.setItem('taskFilter', f); } catch { /* sin almacenamiento */ }
+  renderUpcoming();
+  render();
+}
+let addingList = false;
+function renderTaskFilter(pending) {
+  const box = $('task-filter');
+  const scroll = box.scrollLeft;
+  box.textContent = '';
+  const lists = state.agenda.taskLists;
+  if (!lists.length && !addingList) {
+    if (!state.agenda.tasks.length) return; // sin tareas ni categorías: no hace falta la barra
+  }
+  const chip = (id, label, count, color) => {
+    const b = document.createElement('button');
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(taskFilter === id));
+    if (color) { const d = document.createElement('span'); d.className = 'cat-dot'; d.style.background = color; b.append(d); }
+    b.append(label);
+    if (count) { const n = document.createElement('span'); n.className = 'n'; n.textContent = count; b.append(n); }
+    b.onclick = () => setTaskFilter(id);
+    box.append(b);
+  };
+  chip('all', 'Todas', pending.length);
+  for (const l of lists) chip(l.id, l.name, pending.filter((x) => x.t.list === l.id).length, l.color);
+  const loose = pending.filter((x) => !listOf(x.t)).length;
+  if (lists.length && (loose || taskFilter === 'none')) chip('none', 'Sin categoría', loose);
+  if (addingList) {
+    const input = document.createElement('input');
+    input.placeholder = 'Nueva categoría…';
+    input.maxLength = 24;
+    input.setAttribute('aria-label', 'Nombre de la nueva categoría');
+    const finish = async (save) => {
+      if (!addingList) return;
+      addingList = false;
+      const name = input.value.trim();
+      if (save && name && api) {
+        const a = await api.createTaskList(name);
+        onAgenda(a);
+        const created = a.taskLists[a.taskLists.length - 1];
+        if (created) setTaskFilter(created.id);
+      } else renderUpcoming();
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') { e.stopPropagation(); finish(false); } });
+    input.addEventListener('blur', () => finish(true));
+    box.append(input);
+    setTimeout(() => input.focus(), 0);
+  } else {
+    const add = document.createElement('button');
+    add.className = 'add';
+    add.textContent = '＋';
+    add.title = 'Nueva categoría de tareas';
+    add.onclick = () => { addingList = true; renderUpcoming(); render(); };
+    box.append(add);
+  }
+  box.scrollLeft = scroll;
+}
+
 function taskRow({ t, st }) {
   const row = document.createElement('div');
   row.className = `ag-item task ${st.status}`;
@@ -460,6 +531,7 @@ function taskRow({ t, st }) {
   del.textContent = '×'; del.title = t.repeat ? 'Eliminar la tarea y todas sus repeticiones' : 'Eliminar tarea';
   del.onclick = async () => onAgenda(await api.removeTask(t.id));
   row.append(taskMark(st), text, track, taskCheck(t, st), del);
+  paintCategory(row, t);
   return row;
 }
 
@@ -467,9 +539,13 @@ function taskRow({ t, st }) {
 // que aún no han saltado. Un clic lleva a ese día.
 function renderUpcoming() {
   const today = dateKey(new Date());
-  const pending = tasksOn(today).filter((x) => x.st.status !== 'done');
-  const reminders = state.agenda.events.filter((e) => e.type === 'reminder' && !e.notified && e.date >= today)
+  const allPending = tasksOn(today).filter((x) => x.st.status !== 'done');
+  if (taskFilter !== 'all' && taskFilter !== 'none' && !state.agenda.taskLists.some((l) => l.id === taskFilter)) taskFilter = 'all'; // categoría borrada
+  renderTaskFilter(allPending);
+  const pending = taskFilter === 'all' ? allPending : allPending.filter((x) => (taskFilter === 'none' ? !listOf(x.t) : x.t.list === taskFilter));
+  const remindersAll = state.agenda.events.filter((e) => e.type === 'reminder' && !e.notified && e.date >= today)
     .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '09:00').localeCompare(b.time || '09:00'));
+  const reminders = taskFilter === 'all' ? remindersAll : []; // al filtrar por categoría solo se ven sus tareas
   const all = [...pending.map((t) => ({ task: t })), ...reminders.map((e) => ({ event: e }))];
   const list = $('upcoming-list');
   const scroll = list.scrollTop;
@@ -485,7 +561,8 @@ function renderUpcoming() {
   if (!all.length) {
     const p = document.createElement('div');
     p.className = 'up-empty';
-    p.textContent = 'Sin tareas vigentes ni recordatorios. Haz doble clic en una fecha del calendario para anotar.';
+    p.textContent = taskFilter === 'all' ? 'Sin tareas vigentes ni recordatorios. Haz doble clic en una fecha del calendario para anotar.'
+      : 'Nada pendiente en esta categoría.';
     list.append(p);
   }
   const goTo = (key) => { const [y, m] = key.split('-').map(Number); cal.year = y; cal.month = m - 1; selectedDate = key; if (drawerTab !== 'cal') showDrawerTab('cal'); buildCalendar(); showDayView(true); };
@@ -507,6 +584,7 @@ function renderUpcoming() {
       open.append(day, text);
       open.onclick = () => goTo(today);
       row.append(taskMark(st), open, taskCheck(t, st));
+      paintCategory(row, t);
     } else {
       const e = it.event;
       row.title = `Recordatorio · ${e.time || '09:00'}\n${e.text}`;
@@ -549,18 +627,20 @@ function renderAgenda() {
   $('ag-time').disabled = agendaType === 'note';
   $('ag-time').hidden = agendaType === 'task'; // las tareas eligen frecuencia en lugar de hora
   $('ag-repeat').hidden = agendaType !== 'task';
+  $('ag-list-row').hidden = agendaType !== 'task';
+  fillListSelect();
   renderUpcoming();
   document.querySelectorAll('#agenda-form .seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.type === agendaType)));
 }
 function onAgenda(a) {
   if (!a) return;
-  state.agenda = { events: a.events || [], notes: a.notes || '', tasks: a.tasks || [] };
+  state.agenda = { events: a.events || [], notes: a.notes || '', tasks: a.tasks || [], taskLists: a.taskLists || [] };
   buildCalendar();
 }
 async function addAgendaItem() {
   const text = $('ag-text').value.trim();
   if (!text || !api) return;
-  const next = agendaType === 'task' ? await api.addTask({ text, start: selectedDate, repeat: $('ag-repeat').value })
+  const next = agendaType === 'task' ? await api.addTask({ text, start: selectedDate, repeat: $('ag-repeat').value, list: $('ag-list').value === '__new' ? '' : $('ag-list').value })
     : await api.addAgenda({ date: selectedDate, time: $('ag-time').value, text, type: agendaType });
   $('ag-text').value = '';
   $('ag-time').value = '';
@@ -568,6 +648,49 @@ async function addAgendaItem() {
   onAgenda(next);
 }
 $('ag-add').onclick = addAgendaItem;
+// Selector de categoría del formulario. Recuerda la última usada y permite crear una nueva sin salir.
+let formList = '';
+try { formList = localStorage.getItem('formList') || ''; } catch { /* sin almacenamiento */ }
+function fillListSelect() {
+  const sel = $('ag-list');
+  const lists = state.agenda.taskLists;
+  if (!lists.some((l) => l.id === formList)) formList = taskFilter !== 'all' && lists.some((l) => l.id === taskFilter) ? taskFilter : '';
+  sel.textContent = '';
+  const opt = (value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; sel.append(o); };
+  opt('', 'Sin categoría');
+  for (const l of lists) opt(l.id, l.name);
+  opt('__new', '＋ Nueva categoría…');
+  sel.value = formList;
+}
+$('ag-list').addEventListener('change', () => {
+  if ($('ag-list').value !== '__new') {
+    formList = $('ag-list').value;
+    try { localStorage.setItem('formList', formList); } catch { /* sin almacenamiento */ }
+    return;
+  }
+  $('ag-list').hidden = true;
+  $('ag-newlist').hidden = false;
+  $('ag-newlist').value = '';
+  $('ag-newlist').focus();
+});
+async function finishNewList(save) {
+  if ($('ag-newlist').hidden) return;
+  const name = $('ag-newlist').value.trim();
+  $('ag-newlist').hidden = true;
+  $('ag-list').hidden = false;
+  if (save && name && api) {
+    const a = await api.createTaskList(name);
+    const created = a.taskLists[a.taskLists.length - 1];
+    if (created) { formList = created.id; try { localStorage.setItem('formList', formList); } catch { /* sin almacenamiento */ } }
+    onAgenda(a);
+  } else fillListSelect();
+  $('ag-text').focus();
+}
+$('ag-newlist').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); finishNewList(true); }
+  if (e.key === 'Escape') { e.stopPropagation(); finishNewList(false); }
+});
+$('ag-newlist').addEventListener('blur', () => finishNewList(true));
 $('ag-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') addAgendaItem(); });
 $('ag-time').addEventListener('keydown', (e) => { if (e.key === 'Enter') addAgendaItem(); });
 document.querySelectorAll('#agenda-form .seg button').forEach((b) => { b.onclick = () => { agendaType = b.dataset.type; renderAgenda(); }; });

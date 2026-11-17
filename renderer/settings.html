@@ -44,6 +44,10 @@
   .project .items:empty::after { content: 'Sin elementos todavía.'; color: #8d8ba0; }
   .project .type { width: 54px; flex: none; color: #8d8ba0; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   .project-url { display: flex; gap: 8px; margin-top: 8px; }
+  .tl { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 8px; background: #1f1f29; margin-bottom: 4px; }
+  .tl input[type=text] { flex: 1; min-width: 0; padding: 5px 6px; border-radius: 6px; border: 1px solid #34333f; background: #16161d; color: inherit; font: inherit; }
+  .tl .count { color: #8d8ba0; font-size: 11px; flex: none; }
+  .tl button { margin: 0; padding: 4px 10px; }
   .drop { margin-top: 8px; padding: 10px; border: 1px dashed #4a4958; border-radius: 8px; color: #8d8ba0; font-size: 12px; text-align: center; }
   .drop.over { border-color: #8f8cff; color: #ecebf2; background: #20202c; }
   #picker { position: fixed; inset: 0; background: #16161d; display: flex; flex-direction: column; padding: 16px 20px; }
@@ -128,6 +132,11 @@
   <div class="lib-list" id="lib-tools"></div>
   <div class="inline"><button id="lib-add-tools">Añadir utilidad…</button></div>
   <p class="hint">Herramientas de Windows: calculadora, recortes, lupa, explorador y otras. Oculta las que no uses.</p>
+
+  <h2 id="categorias-tareas">Categorías de tareas</h2>
+  <div id="tasklist-list"></div>
+  <div class="inline"><input id="tasklist-name" type="text" maxlength="24" placeholder="Nombre de la categoría" aria-label="Nueva categoría de tareas" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid #34333f;background:#1f1f29;color:inherit;font:inherit"><button id="tasklist-new">Crear</button></div>
+  <p class="hint">Agrupan tus tareas por color. En la isla, filtra con los botones sobre "Tareas y recordatorios", y haz clic derecho en una tarea para cambiarla de categoría. Al eliminar una categoría sus tareas se conservan, sin categoría.</p>
 
   <h2 id="categorias">Categorías propias</h2>
   <div id="category-list"></div>

@@ -74,6 +74,7 @@
 
     <div id="upcoming">
       <div id="upcoming-title">Tareas y recordatorios</div>
+      <div id="task-filter" role="tablist" aria-label="Filtrar tareas por categoría"></div>
       <div id="upcoming-list"></div>
     </div>
   </div>
@@ -118,6 +119,10 @@
             <button data-type="task" aria-pressed="false" title="Una tarea que empieza ese día y sigue apareciendo cada día hasta completarla">Tarea</button>
           </div>
           <input id="ag-text" type="text" maxlength="120" placeholder="Nuevo evento…" aria-label="Texto">
+          <div id="ag-list-row" hidden>
+            <select id="ag-list" aria-label="Categoría de la tarea"></select>
+            <input id="ag-newlist" type="text" maxlength="24" placeholder="Nombre de la categoría" aria-label="Nueva categoría" hidden>
+          </div>
           <div id="ag-row">
             <input id="ag-time" type="time" aria-label="Hora (opcional)" title="Hora (opcional)">
             <select id="ag-repeat" aria-label="Frecuencia de la tarea" hidden>

@@ -36,7 +36,15 @@ function loadSettings() {
   try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* primera vez */ }
   for (const k of ['favorites', 'extraGames', 'extraLaunchers', 'extraOffice', 'extraTools', 'extraBrowsers', 'hiddenLibrary']) if (!Array.isArray(settings[k])) settings[k] = [];
 }
-function saveSettings() { try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* sin permisos */ } }
+// Escribe en un archivo temporal y lo renombra: si el equipo se apaga a mitad, el archivo anterior queda intacto.
+function writeFileAtomic(file, text) {
+  try {
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, file);
+  } catch { /* sin permisos */ }
+}
+function saveSettings() { writeFileAtomic(settingsFile(), JSON.stringify(settings)); }
 let tray = null;
 let mediaProc = null;
 
@@ -762,15 +770,16 @@ ipcMain.handle('drop-paths', async (_e, paths, target) => {
 });
 
 // ---------- Agenda: eventos, recordatorios y notas rápidas ----------
-let agenda = { events: [], notes: '', tasks: [] };
+let agenda = { events: [], notes: '', tasks: [], taskLists: [] };
 const agendaFile = () => path.join(app.getPath('userData'), 'agenda.json');
 function loadAgenda() {
   try {
     const d = JSON.parse(fs.readFileSync(agendaFile(), 'utf8'));
-    agenda = { events: Array.isArray(d.events) ? d.events : [], notes: typeof d.notes === 'string' ? d.notes : '', tasks: Array.isArray(d.tasks) ? d.tasks : [] };
+    agenda = { events: Array.isArray(d.events) ? d.events : [], notes: typeof d.notes === 'string' ? d.notes : '', tasks: Array.isArray(d.tasks) ? d.tasks : [],
+      taskLists: Array.isArray(d.taskLists) ? d.taskLists : [] };
   } catch { /* primera vez */ }
 }
-function saveAgenda() { try { fs.writeFileSync(agendaFile(), JSON.stringify(agenda)); } catch { /* sin permisos */ } }
+function saveAgenda() { writeFileAtomic(agendaFile(), JSON.stringify(agenda)); }
 const dueTime = (e) => new Date(`${e.date}T${e.time || '09:00'}:00`).getTime(); // sin hora, el recordatorio avisa a las 9:00
 function checkReminders() {
   const now = Date.now();
@@ -816,9 +825,51 @@ ipcMain.handle('task-add', (_e, item) => {
   // repeat: '' (una sola vez), 'daily', 'weekdays', 'weekly' o 'monthly'. Las repetitivas guardan en doneMap
   // cuándo se completó cada repetición (clave: la fecha de esa repetición).
   const repeat = ['daily', 'weekdays', 'weekly', 'monthly'].includes(item.repeat) ? item.repeat : '';
-  agenda.tasks.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, text, created: Date.now(), start: item.start, done: null, repeat, doneMap: {} });
+  const list = agenda.taskLists.some((l) => l.id === item.list) ? item.list : '';
+  agenda.tasks.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, text, created: Date.now(), start: item.start, done: null, repeat, doneMap: {}, list });
   saveAgenda();
   return agenda;
+});
+// ---------- Categorías de tareas (listas con nombre y color) ----------
+const LIST_COLORS = ['#7f8cff', '#ffb454', '#5fd38d', '#ff7a8a', '#4cc9f0', '#c792ea', '#f6d365', '#9aa5b1'];
+function agendaChanged() {
+  saveAgenda();
+  send('agenda', agenda);
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('agenda', agenda);
+  return agenda;
+}
+ipcMain.handle('tasklist-create', (_e, name) => {
+  const n = typeof name === 'string' ? name.trim().slice(0, 24) : '';
+  if (!n || agenda.taskLists.length >= 20) return agenda;
+  const used = new Set(agenda.taskLists.map((l) => l.color));
+  const color = LIST_COLORS.find((c) => !used.has(c)) || LIST_COLORS[agenda.taskLists.length % LIST_COLORS.length];
+  agenda.taskLists.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: n, color });
+  return agendaChanged();
+});
+ipcMain.handle('tasklist-update', (_e, id, patch) => {
+  const l = agenda.taskLists.find((x) => x.id === id);
+  if (!l || !patch || typeof patch !== 'object') return agenda;
+  if (typeof patch.name === 'string' && patch.name.trim()) l.name = patch.name.trim().slice(0, 24);
+  if (typeof patch.color === 'string' && /^#[0-9a-f]{6}$/i.test(patch.color)) l.color = patch.color;
+  return agendaChanged();
+});
+ipcMain.handle('tasklist-delete', (_e, id) => {
+  agenda.taskLists = agenda.taskLists.filter((l) => l.id !== id);
+  for (const t of agenda.tasks) if (t.list === id) t.list = ''; // las tareas se conservan, sin categoría
+  return agendaChanged();
+});
+// Menú contextual de una tarea (clic derecho): mover a otra categoría o eliminarla.
+ipcMain.on('task-menu', (_e, id) => {
+  const t = agenda.tasks.find((x) => x.id === id);
+  if (!t || !win || win.isDestroyed()) return;
+  const move = (list) => { t.list = list; agendaChanged(); };
+  Menu.buildFromTemplate([
+    { label: 'Categoría', enabled: false },
+    { label: 'Sin categoría', type: 'radio', checked: !t.list, click: () => move('') },
+    ...agenda.taskLists.map((l) => ({ label: l.name, type: 'radio', checked: t.list === l.id, click: () => move(l.id) })),
+    { type: 'separator' },
+    { label: t.repeat ? 'Eliminar la tarea y sus repeticiones' : 'Eliminar tarea', click: () => { agenda.tasks = agenda.tasks.filter((x) => x.id !== id); agendaChanged(); } },
+  ]).popup({ window: win });
 });
 ipcMain.handle('task-toggle', (_e, id, occ) => {
   const t = agenda.tasks.find((x) => x.id === id);

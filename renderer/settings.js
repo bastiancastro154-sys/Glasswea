@@ -179,6 +179,46 @@ dropZone($('fav-drop'), 'favorites');
 window.addEventListener('dragover', (e) => e.preventDefault()); // fuera de las zonas no se navega al archivo soltado
 window.addEventListener('drop', (e) => e.preventDefault());
 
+// ---------- Categorías de tareas ----------
+function showTaskLists(a) {
+  if (!a) return;
+  const box = $('tasklist-list');
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.tl : null;
+  box.textContent = '';
+  for (const l of a.taskLists || []) {
+    const row = document.createElement('div');
+    row.className = 'tl';
+    const color = document.createElement('input');
+    color.type = 'color'; color.value = l.color; color.title = 'Color';
+    color.addEventListener('change', () => api.updateTaskList(l.id, { color: color.value }));
+    const name = document.createElement('input');
+    name.type = 'text'; name.value = l.name; name.maxLength = 24; name.dataset.tl = l.id;
+    name.setAttribute('aria-label', 'Nombre de la categoría');
+    name.addEventListener('change', () => api.updateTaskList(l.id, { name: name.value }));
+    const count = document.createElement('span');
+    count.className = 'count';
+    const n = (a.tasks || []).filter((t) => t.list === l.id).length;
+    count.textContent = `${n} tarea${n === 1 ? '' : 's'}`;
+    const del = document.createElement('button');
+    del.textContent = 'Eliminar';
+    del.onclick = () => api.deleteTaskList(l.id);
+    row.append(color, name, count, del);
+    box.append(row);
+  }
+  if (!(a.taskLists || []).length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'Aún no tienes categorías de tareas.'; box.append(p); }
+  if (focused) { const el = box.querySelector(`input[data-tl="${focused}"]`); if (el) el.focus(); }
+}
+async function createTaskList() {
+  const name = $('tasklist-name').value.trim();
+  if (!name) return;
+  $('tasklist-name').value = '';
+  showTaskLists(await api.createTaskList(name));
+}
+$('tasklist-new').onclick = createTaskList;
+$('tasklist-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') createTaskList(); });
+api.onAgenda(showTaskLists);
+api.getAgenda().then(showTaskLists);
+
 // ---------- Categorías propias ----------
 function showCategories(list) {
   const box = $('category-list');
